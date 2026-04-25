@@ -1,0 +1,85 @@
+merchant_slug: demo-merchant
+fops:
+  - id: fop_invalid_address_hold
+    scope: order_exception.address_validation
+    nl_text: If the shipping address is invalid or ambiguous, hold fulfillment and draft a customer confirmation message.
+    conditions:
+      any:
+        - field: address.is_valid
+          operator: equals
+          value: false
+        - field: address.status
+          operator: in
+          value:
+            - invalid
+            - ambiguous
+    constraints:
+      - Do not update the Shopify shipping address until the customer confirms the correction.
+      - Draft the customer-facing message before changing fulfillment.
+    required_approvals:
+      - hold_fulfillment
+      - customer_message
+  - id: fop_high_value_first_time_international
+    scope: order_exception.high_value_review
+    nl_text: Hold any order over $500 from a first-time international customer for manual review.
+    conditions:
+      all:
+        - field: order.total_price
+          operator: greater_than
+          value: 500
+        - field: customer.order_count
+          operator: equals
+          value: 0
+        - field: order.country_code
+          operator: not_equals
+          value: US
+    constraints:
+      - Do not release fulfillment until a human approves the order.
+    required_approvals:
+      - release_fulfillment
+  - id: fop_fraud_score_cancel
+    scope: order_exception.fraud_triage
+    nl_text: If fraud score is above 80, cancel automatically and refund.
+    conditions:
+      all:
+        - field: risk.score
+          operator: greater_than
+          value: 80
+    constraints:
+      - Cancellation and refund must use an idempotency key derived from the case id.
+    auto_actions:
+      - cancel_order
+      - refund_payment
+  - id: fop_payment_failure_reauth
+    scope: order_exception.payment_failure
+    nl_text: If payment fails or requires reauthorization, draft a customer reauthorization message and annotate the order.
+    conditions:
+      any:
+        - field: payment.status
+          operator: equals
+          value: failed
+        - field: payment.status
+          operator: equals
+          value: declined
+        - field: payment.status
+          operator: equals
+          value: requires_payment_method
+        - field: payment.status
+          operator: equals
+          value: requires_action
+    constraints:
+      - Do not fulfill orders with unresolved payment failures.
+    required_approvals:
+      - customer_message
+  - id: fop_inventory_oos_partial_ship
+    scope: order_exception.inventory_conflict
+    nl_text: If part of an order is out of stock, propose a partial shipment and customer message.
+    conditions:
+      all:
+        - field: inventory.has_out_of_stock_line
+          operator: equals
+          value: true
+    constraints:
+      - Draft the customer-facing message before changing fulfillment.
+    required_approvals:
+      - partial_ship

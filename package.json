@@ -1,0 +1,24 @@
+{
+  "name": "ecom-agent",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.25.0",
+  "scripts": {
+    "dev": "pnpm run dev:services && pnpm run dev:migrate && concurrently -n agents,api,console -c cyan,magenta,green \"pnpm run dev:agents\" \"pnpm run dev:api\" \"pnpm run dev:console\"",
+    "dev:services": "docker compose -f infra/docker-compose.yml up -d postgres redis && pnpm run db:wait",
+    "db:wait": "until docker compose -f infra/docker-compose.yml exec -T postgres pg_isready -U ecom_agent -d ecom_agent; do sleep 1; done",
+    "dev:agents": "cd apps/agents && uv run langgraph dev --host 0.0.0.0 --port 2024",
+    "dev:api": "cd apps/api && uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload",
+    "dev:console": "pnpm --filter @ecom-agent/console dev",
+    "dev:migrate": "pnpm run db:migrate",
+    "db:migrate": "uv run alembic -c infra/alembic.ini upgrade head",
+    "eval:gate": "uv run python scripts/run_langsmith_eval_gate.py",
+    "eval:export-corrections": "uv run python scripts/export_eval_corrections_to_langsmith.py",
+    "check": "pnpm run check:python && pnpm run check:ts",
+    "check:python": "uv run ruff check . && uv run mypy && uv run pytest",
+    "check:ts": "pnpm --filter @ecom-agent/console typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "order-exception": "./src/agents/order_exception/graph.py:graph"
+  },
+  "env": "../../.env"
+}
+

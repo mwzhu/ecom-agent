@@ -1,0 +1,406 @@
+[
+  {
+    "id": "fraud_high_score_cancel_refund",
+    "title": "High fraud score cancels and refunds",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_fraud_high",
+      "order": { "id": "gid://shopify/Order/1001", "total_price": "742.00" },
+      "context": { "risk": { "score": 92 } }
+    },
+    "expected": {
+      "exception_type": "fraud_triage",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_fraud_score_cancel"],
+      "tool_calls": ["shopify_cancel_order", "shopify_create_refund"]
+    },
+    "tags": ["fraud", "money_movement", "top_10"]
+  },
+  {
+    "id": "fraud_score_string_cancel_refund",
+    "title": "String fraud score still triggers fraud FOP",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_fraud_string",
+      "exception_type": "fraud_triage",
+      "order": { "id": "gid://shopify/Order/1002" },
+      "context": { "risk": { "score": "85" } }
+    },
+    "expected": {
+      "exception_type": "fraud_triage",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_fraud_score_cancel"],
+      "tool_calls": ["shopify_cancel_order", "shopify_create_refund"]
+    },
+    "tags": ["fraud", "synthetic_variant"]
+  },
+  {
+    "id": "fraud_medium_score_manual_hold",
+    "title": "Medium fraud score holds for manual review",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_fraud_medium",
+      "exception_type": "fraud_triage",
+      "order": { "id": "gid://shopify/Order/1003" },
+      "context": { "risk": { "score": 65 } }
+    },
+    "expected": {
+      "exception_type": "fraud_triage",
+      "requires_human": true,
+      "matched_fop_ids": [],
+      "tool_calls": ["shopify_update_order_note"]
+    },
+    "tags": ["fraud", "top_10"]
+  },
+  {
+    "id": "fraud_low_score_auto_proceed",
+    "title": "Low fraud score proceeds without writes",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_fraud_low",
+      "exception_type": "fraud_triage",
+      "order": { "id": "gid://shopify/Order/1004" },
+      "context": { "risk": { "score": 12 } }
+    },
+    "expected": {
+      "exception_type": "fraud_triage",
+      "requires_human": false,
+      "matched_fop_ids": [],
+      "tool_calls": [],
+      "resolution_status": "auto_resolved"
+    },
+    "tags": ["fraud", "autonomous"]
+  },
+  {
+    "id": "address_missing_apartment",
+    "title": "Missing apartment number drafts confirmation",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_address_apt",
+      "exception_type": "address_validation",
+      "order": {
+        "id": "gid://shopify/Order/2001",
+        "name": "#2001",
+        "email": "buyer@example.com"
+      },
+      "context": {
+        "address_validation": {
+          "is_valid": false,
+          "issues": ["missing apartment number"],
+          "suggested_address": { "address1": "100 Market St", "city": "San Francisco" }
+        },
+        "ticket": { "id": 12345 }
+      }
+    },
+    "expected": {
+      "exception_type": "address_validation",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_invalid_address_hold"],
+      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["address", "customer_message", "top_10"]
+  },
+  {
+    "id": "address_ambiguous_status",
+    "title": "Ambiguous address status triggers hold",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_address_ambiguous",
+      "order": {
+        "id": "gid://shopify/Order/2002",
+        "name": "#2002",
+        "email": "buyer@example.com"
+      },
+      "context": {
+        "address_validation": {
+          "status": "ambiguous",
+          "issues": ["multiple address matches"]
+        },
+        "ticket": { "id": 12346 }
+      }
+    },
+    "expected": {
+      "exception_type": "address_validation",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_invalid_address_hold"],
+      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["address", "synthetic_variant"]
+  },
+  {
+    "id": "address_invalid_status",
+    "title": "Invalid address status with no suggestion asks customer",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_address_invalid",
+      "exception_type": "address_validation",
+      "order": {
+        "id": "gid://shopify/Order/2003",
+        "name": "#2003",
+        "email": "buyer@example.com"
+      },
+      "context": {
+        "address_validation": {
+          "status": "invalid",
+          "issues": ["postal code not found"]
+        },
+        "ticket": { "id": 12347 }
+      }
+    },
+    "expected": {
+      "exception_type": "address_validation",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_invalid_address_hold"],
+      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["address"]
+  },
+  {
+    "id": "address_valid_auto_proceed",
+    "title": "Valid address needs no hold",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_address_valid",
+      "exception_type": "address_validation",
+      "order": { "id": "gid://shopify/Order/2004", "name": "#2004" },
+      "context": { "address_validation": { "is_valid": true, "status": "valid" } }
+    },
+    "expected": {
+      "exception_type": "address_validation",
+      "requires_human": false,
+      "matched_fop_ids": [],
+      "tool_calls": [],
+      "resolution_status": "auto_resolved"
+    },
+    "tags": ["address", "autonomous"]
+  },
+  {
+    "id": "payment_failed_draft_reauth",
+    "title": "Failed payment drafts reauthorization message",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_payment_failed",
+      "order": { "id": "gid://shopify/Order/3001", "email": "buyer@example.com" },
+      "context": { "payment": { "status": "failed", "charge_id": "ch_3001" }, "ticket": { "id": 555 } }
+    },
+    "expected": {
+      "exception_type": "payment_failure",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_payment_failure_reauth"],
+      "tool_calls": ["stripe_get_charge", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["payment", "customer_message", "top_10"]
+  },
+  {
+    "id": "payment_requires_action",
+    "title": "Payment requiring action drafts customer request",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_payment_action",
+      "exception_type": "payment_failure",
+      "order": { "id": "gid://shopify/Order/3002", "email": "buyer@example.com" },
+      "context": { "payment": { "status": "requires_action", "charge_id": "ch_3002" }, "ticket": { "id": 556 } }
+    },
+    "expected": {
+      "exception_type": "payment_failure",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_payment_failure_reauth"],
+      "tool_calls": ["stripe_get_charge", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["payment"]
+  },
+  {
+    "id": "payment_declined_from_order_status",
+    "title": "Declined financial status routes to payment failure",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_payment_declined",
+      "order": {
+        "id": "gid://shopify/Order/3003",
+        "email": "buyer@example.com",
+        "financial_status": "declined"
+      },
+      "context": { "ticket": { "id": 557 } }
+    },
+    "expected": {
+      "exception_type": "payment_failure",
+      "requires_human": true,
+      "matched_fop_ids": [],
+      "tool_calls": ["stripe_get_charge", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["payment", "synthetic_variant"]
+  },
+  {
+    "id": "payment_paid_auto_monitor",
+    "title": "Paid order does not trigger payment workflow",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_payment_paid",
+      "exception_type": "payment_failure",
+      "order": { "id": "gid://shopify/Order/3004", "financial_status": "paid" },
+      "context": {}
+    },
+    "expected": {
+      "exception_type": "payment_failure",
+      "requires_human": false,
+      "matched_fop_ids": [],
+      "tool_calls": [],
+      "resolution_status": "auto_resolved"
+    },
+    "tags": ["payment", "autonomous"]
+  },
+  {
+    "id": "high_value_first_time_international",
+    "title": "First-time international order over threshold is held",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_high_value_ca",
+      "order": { "id": "gid://shopify/Order/4001", "total_price": "812.00", "country_code": "CA" },
+      "context": { "customer": { "order_count": 0 } }
+    },
+    "expected": {
+      "exception_type": "high_value_review",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_high_value_first_time_international"],
+      "tool_calls": ["shopify_hold_fulfillment_order", "shopify_update_order_note"]
+    },
+    "tags": ["high_value", "top_10"]
+  },
+  {
+    "id": "high_value_repeat_customer_proceed",
+    "title": "Repeat international customer does not match first-time FOP",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_high_value_repeat",
+      "exception_type": "high_value_review",
+      "order": { "id": "gid://shopify/Order/4002", "total_price": "900.00", "country_code": "CA" },
+      "context": { "customer": { "order_count": 4 } }
+    },
+    "expected": {
+      "exception_type": "high_value_review",
+      "requires_human": false,
+      "matched_fop_ids": [],
+      "tool_calls": [],
+      "resolution_status": "auto_resolved"
+    },
+    "tags": ["high_value", "autonomous"]
+  },
+  {
+    "id": "high_value_domestic_proceed",
+    "title": "Domestic high-value order does not match international FOP",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_high_value_us",
+      "exception_type": "high_value_review",
+      "order": { "id": "gid://shopify/Order/4003", "total_price": "1000.00", "country_code": "US" },
+      "context": { "customer": { "order_count": 0 } }
+    },
+    "expected": {
+      "exception_type": "high_value_review",
+      "requires_human": false,
+      "matched_fop_ids": [],
+      "tool_calls": [],
+      "resolution_status": "auto_resolved"
+    },
+    "tags": ["high_value", "autonomous"]
+  },
+  {
+    "id": "high_value_mexico_first_time",
+    "title": "First-time Mexico order over threshold is held",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_high_value_mx",
+      "exception_type": "high_value_review",
+      "order": { "id": "gid://shopify/Order/4004", "total_price": "1500.00", "country_code": "MX" },
+      "context": { "customer": { "order_count": 0 } }
+    },
+    "expected": {
+      "exception_type": "high_value_review",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_high_value_first_time_international"],
+      "tool_calls": ["shopify_hold_fulfillment_order", "shopify_update_order_note"]
+    },
+    "tags": ["high_value"]
+  },
+  {
+    "id": "inventory_oos_boolean",
+    "title": "Out-of-stock boolean proposes partial shipment",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_inventory_bool",
+      "order": { "id": "gid://shopify/Order/5001", "email": "buyer@example.com" },
+      "context": {
+        "inventory": { "has_out_of_stock_line": true, "out_of_stock_lines": [{ "sku": "TEE-BLACK-M" }] },
+        "ticket": { "id": 987 }
+      }
+    },
+    "expected": {
+      "exception_type": "inventory_conflict",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_inventory_oos_partial_ship"],
+      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["inventory", "top_10"]
+  },
+  {
+    "id": "inventory_oos_lines_only",
+    "title": "Out-of-stock line list still proposes partial shipment",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_inventory_lines",
+      "exception_type": "inventory_conflict",
+      "order": { "id": "gid://shopify/Order/5002", "email": "buyer@example.com" },
+      "context": {
+        "inventory": { "out_of_stock_lines": [{ "sku": "HOODIE-GREEN-L" }] },
+        "ticket": { "id": 988 }
+      }
+    },
+    "expected": {
+      "exception_type": "inventory_conflict",
+      "requires_human": true,
+      "matched_fop_ids": [],
+      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["inventory", "synthetic_variant"]
+  },
+  {
+    "id": "inventory_no_conflict_auto_proceed",
+    "title": "No inventory conflict proceeds",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_inventory_clear",
+      "exception_type": "inventory_conflict",
+      "order": { "id": "gid://shopify/Order/5003" },
+      "context": { "inventory": { "has_out_of_stock_line": false } }
+    },
+    "expected": {
+      "exception_type": "inventory_conflict",
+      "requires_human": false,
+      "matched_fop_ids": [],
+      "tool_calls": [],
+      "resolution_status": "auto_resolved"
+    },
+    "tags": ["inventory", "autonomous"]
+  },
+  {
+    "id": "inventory_shipbob_backorder",
+    "title": "3PL backorder maps to inventory conflict",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_inventory_shipbob",
+      "order": { "id": "gid://shopify/Order/5004", "email": "buyer@example.com" },
+      "context": {
+        "inventory": { "has_out_of_stock_line": true, "out_of_stock_lines": [{ "sku": "BAG-NAVY" }] },
+        "fulfillment": { "provider": "shipbob", "status": "backordered" },
+        "ticket": { "id": 989 }
+      }
+    },
+    "expected": {
+      "exception_type": "inventory_conflict",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_inventory_oos_partial_ship"],
+      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["inventory", "3pl"]
+  }
+]

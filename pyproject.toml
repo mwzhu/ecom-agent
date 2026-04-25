@@ -1,0 +1,65 @@
+[project]
+name = "ecom-agent"
+version = "0.1.0"
+description = "Agentic ecommerce operations platform monorepo."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "alembic>=1.17.2",
+  "httpx>=0.28.1",
+  "mypy>=1.18.2",
+  "psycopg[binary]>=3.2.14",
+  "pytest>=8.4.2",
+  "pytest-asyncio>=1.2.0",
+  "ruff>=0.14.7",
+  "testcontainers[postgres]>=4.13.2",
+  "types-pyyaml>=6.0.12.20250915",
+]
+
+[tool.uv.workspace]
+members = [
+  "apps/agents",
+  "apps/api",
+  "packages/shared-schemas",
+]
+
+[tool.uv.sources]
+ecom-agent-agents = { workspace = true }
+ecom-agent-api = { workspace = true }
+ecom-shared-schemas = { workspace = true }
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "apps/agents/src",
+  "apps/api/src",
+  "packages/shared-schemas/src",
+]
+testpaths = [
+  "apps/agents/tests",
+  "apps/api/tests",
+  "packages/shared-schemas/tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = [
+  "apps/agents/src",
+  "apps/api/src",
+  "packages/shared-schemas/src",
+]
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = [
+  "apps/agents/src",
+  "apps/api/src",
+  "packages/shared-schemas/src",
+]
+packages = ["agents", "api", "ecom_shared"]
