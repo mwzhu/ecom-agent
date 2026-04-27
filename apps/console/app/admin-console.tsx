@@ -11,11 +11,16 @@ const statusLabels: Record<CaseStatus, string> = {
 };
 
 const typeLabels: Record<string, string> = {
-  address_validation: "Address validation",
+  address_change_request: "Address change request",
+  damaged_in_transit: "Damaged in transit",
+  delivered_not_received: "Delivered not received",
   fraud_triage: "Fraud triage",
-  payment_failure: "Payment failure",
-  high_value_review: "High-value review",
   inventory_conflict: "Inventory conflict",
+  item_change_request: "Item change request",
+  order_cancellation_request: "Order cancellation request",
+  order_not_picked: "Order not picked",
+  stuck_in_transit: "Stuck in transit",
+  wismo: "WISMO",
 };
 
 type ActionState = {

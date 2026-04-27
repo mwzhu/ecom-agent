@@ -1,42 +1,5 @@
 merchant_slug: demo-merchant
 fops:
-  - id: fop_invalid_address_hold
-    scope: order_exception.address_validation
-    nl_text: If the shipping address is invalid or ambiguous, hold fulfillment and draft a customer confirmation message.
-    conditions:
-      any:
-        - field: address.is_valid
-          operator: equals
-          value: false
-        - field: address.status
-          operator: in
-          value:
-            - invalid
-            - ambiguous
-    constraints:
-      - Do not update the Shopify shipping address until the customer confirms the correction.
-      - Draft the customer-facing message before changing fulfillment.
-    required_approvals:
-      - hold_fulfillment
-      - customer_message
-  - id: fop_high_value_first_time_international
-    scope: order_exception.high_value_review
-    nl_text: Hold any order over $500 from a first-time international customer for manual review.
-    conditions:
-      all:
-        - field: order.total_price
-          operator: greater_than
-          value: 500
-        - field: customer.order_count
-          operator: equals
-          value: 0
-        - field: order.country_code
-          operator: not_equals
-          value: US
-    constraints:
-      - Do not release fulfillment until a human approves the order.
-    required_approvals:
-      - release_fulfillment
   - id: fop_fraud_score_cancel
     scope: order_exception.fraud_triage
     nl_text: If fraud score is above 80, cancel automatically and refund.
@@ -50,27 +13,22 @@ fops:
     auto_actions:
       - cancel_order
       - refund_payment
-  - id: fop_payment_failure_reauth
-    scope: order_exception.payment_failure
-    nl_text: If payment fails or requires reauthorization, draft a customer reauthorization message and annotate the order.
+  - id: fop_fraud_gray_zone_hold
+    scope: order_exception.fraud_triage
+    nl_text: If fraud score is between 50 and 80, hold fulfillment and review recent customer history before release.
     conditions:
-      any:
-        - field: payment.status
-          operator: equals
-          value: failed
-        - field: payment.status
-          operator: equals
-          value: declined
-        - field: payment.status
-          operator: equals
-          value: requires_payment_method
-        - field: payment.status
-          operator: equals
-          value: requires_action
+      all:
+        - field: risk.score
+          operator: greater_than_or_equal
+          value: 50
+        - field: risk.score
+          operator: less_than_or_equal
+          value: 80
     constraints:
-      - Do not fulfill orders with unresolved payment failures.
+      - Hold fulfillment before releasing medium-risk fraud orders.
+      - Review recent customer order history before approval.
     required_approvals:
-      - customer_message
+      - fraud_review
   - id: fop_inventory_oos_partial_ship
     scope: order_exception.inventory_conflict
     nl_text: If part of an order is out of stock, propose a partial shipment and customer message.
@@ -83,3 +41,115 @@ fops:
       - Draft the customer-facing message before changing fulfillment.
     required_approvals:
       - partial_ship
+  - id: fop_address_change_pre_ship
+    scope: order_exception.address_change_request
+    nl_text: If a customer requests an address change before shipment, hold fulfillment, update the address, and confirm the change.
+    conditions:
+      all:
+        - field: customer_request.type
+          operator: equals
+          value: address_change_request
+    constraints:
+      - Do not edit the shipping address after the order has shipped.
+      - Apply the Shopify address update before confirming the change back to the customer.
+    required_approvals:
+      - address_edit
+      - customer_message
+  - id: fop_item_change_zero_delta
+    scope: order_exception.item_change_request
+    nl_text: If a customer requests an item swap before shipment and the payment delta is zero, stage a Shopify order edit and confirm the change.
+    conditions:
+      all:
+        - field: customer_request.type
+          operator: equals
+          value: item_change_request
+        - field: item_change.payment_delta
+          operator: equals
+          value: 0
+    constraints:
+      - Use Shopify order edits instead of cancel-and-recreate when the order is still editable.
+      - Hold fulfillment while the edit is staged.
+    required_approvals:
+      - order_edit
+      - customer_message
+  - id: fop_pre_ship_cancellation
+    scope: order_exception.order_cancellation_request
+    nl_text: If the customer cancels before shipment, cancel the order, refund it, and restock inventory.
+    conditions:
+      all:
+        - field: customer_request.type
+          operator: equals
+          value: cancel_order
+    constraints:
+      - Use the native Shopify cancellation path so payment reversal and restock stay tied to the order.
+    required_approvals:
+      - cancel_order
+      - refund_payment
+  - id: fop_pick_sla_breach_proactive_update
+    scope: order_exception.order_not_picked
+    nl_text: If an order is not picked within 24 hours, review the 3PL status and prepare a proactive customer update.
+    conditions:
+      any:
+        - field: fulfillment.pick_sla_breached
+          operator: equals
+          value: true
+        - field: fulfillment.age_hours
+          operator: greater_than_or_equal
+          value: 24
+    constraints:
+      - Confirm the latest 3PL status before promising a new ship date.
+    required_approvals:
+      - customer_message
+  - id: fop_stuck_in_transit_customer_update
+    scope: order_exception.stuck_in_transit
+    nl_text: If tracking has no carrier scan for three or more days, prepare a tracking update and preserve an internal note.
+    conditions:
+      all:
+        - field: shipment.days_since_last_scan
+          operator: greater_than_or_equal
+          value: 3
+    constraints:
+      - Confirm the latest tracking state before offering refunds or replacements.
+    required_approvals:
+      - customer_message
+  - id: fop_wismo_tracking_reply
+    scope: order_exception.wismo
+    nl_text: If the ticket is a where-is-my-order request, draft a concise tracking reply.
+    conditions:
+      any:
+        - field: customer_request.type
+          operator: equals
+          value: wismo
+        - field: ticket.intent
+          operator: equals
+          value: wismo
+    constraints:
+      - Keep WISMO replies concise and grounded in the latest shipment status.
+    required_approvals:
+      - customer_message
+  - id: fop_delivered_not_received_review
+    scope: order_exception.delivered_not_received
+    nl_text: If the package is marked delivered but the customer reports it missing, review claim history before approving any refund or replacement.
+    conditions:
+      all:
+        - field: delivery.reported_missing
+          operator: equals
+          value: true
+    constraints:
+      - Review prior missing-delivery claims before approving a refund or replacement.
+    required_approvals:
+      - customer_message
+      - refund_payment
+  - id: fop_damaged_in_transit_review
+    scope: order_exception.damaged_in_transit
+    nl_text: If the customer reports transit damage, draft an apology immediately and route the case for refund or replacement review.
+    conditions:
+      all:
+        - field: delivery.reported_damaged
+          operator: equals
+          value: true
+    constraints:
+      - Preserve damage evidence before authorizing any refund or replacement.
+    required_approvals:
+      - customer_message
+      - refund_payment

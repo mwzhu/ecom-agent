@@ -122,7 +122,13 @@ def _root_value(root_name: str, order: JsonObject, context: JsonObject) -> objec
     if root_name == "payment":
         return context.get("payment", {})
     if root_name == "address":
-        return context.get("address_validation", order.get("shipping_address", {}))
+        address_change = context.get("address_change", {})
+        if isinstance(address_change, dict) and address_change.get("requested_address"):
+            return address_change.get("requested_address")
+        customer_request = context.get("customer_request", {})
+        if isinstance(customer_request, dict) and customer_request.get("requested_address"):
+            return customer_request.get("requested_address")
+        return order.get("shipping_address", {})
     return context.get(root_name, {})
 
 

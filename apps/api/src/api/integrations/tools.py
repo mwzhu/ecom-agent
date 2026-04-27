@@ -15,11 +15,14 @@ from api.integrations.shipstation import (
     shipstation_hold_order,
 )
 from api.integrations.shopify import (
+    shopify_apply_order_edit,
     shopify_cancel_order,
     shopify_create_refund,
     shopify_get_order,
     shopify_hold_fulfillment_order,
+    shopify_search_orders,
     shopify_update_order_note,
+    shopify_update_shipping_address,
 )
 from api.integrations.stripe import (
     stripe_create_refund,
@@ -30,7 +33,10 @@ from api.integrations.stripe import (
 
 INTEGRATION_TOOLS: list[BaseTool] = [
     shopify_get_order,
+    shopify_search_orders,
     shopify_update_order_note,
+    shopify_update_shipping_address,
+    shopify_apply_order_edit,
     shopify_cancel_order,
     shopify_create_refund,
     shopify_hold_fulfillment_order,

@@ -12,13 +12,22 @@ from ecom_shared import ClassificationResult, ExceptionType
 JsonObject = dict[str, Any]
 
 EXCEPTION_TYPES = {
-    "address_validation",
+    "address_change_request",
+    "damaged_in_transit",
+    "delivered_not_received",
     "fraud_triage",
-    "payment_failure",
-    "high_value_review",
     "inventory_conflict",
+    "item_change_request",
+    "order_cancellation_request",
+    "order_not_picked",
+    "stuck_in_transit",
+    "wismo",
 }
-COMPLEX_ROUTES = {"fraud_triage", "high_value_review"}
+COMPLEX_ROUTES = {
+    "delivered_not_received",
+    "fraud_triage",
+    "item_change_request",
+}
 LOCKED_PROPOSAL_FIELDS = {
     "type",
     "requires_human",
@@ -59,10 +68,13 @@ def refine_supervisor_route(
             model=model,
             system=(
                 "You are the Order Exception Agent supervisor. Classify the case into "
-                "exactly one lane: address_validation, fraud_triage, payment_failure, "
-                "high_value_review, or inventory_conflict. Use the deterministic "
-                "classification as the safety baseline and only override it when the "
-                "evidence is clear. Respond with JSON only."
+                "exactly one lane: address_change_request, damaged_in_transit, "
+                "delivered_not_received, fraud_triage, inventory_conflict, "
+                "item_change_request, order_cancellation_request, "
+                "order_not_picked, stuck_in_transit, or wismo. Use the "
+                "deterministic classification "
+                "as the safety baseline and only override it when the evidence is clear. "
+                "Respond with JSON only."
             ),
             body={
                 "deterministic": {

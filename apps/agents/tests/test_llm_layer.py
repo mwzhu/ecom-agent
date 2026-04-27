@@ -9,7 +9,7 @@ def test_subagent_refinement_keeps_tool_plan_and_approval_fields_locked(monkeypa
             "summary": "Refined summary.",
             "recommendation": "Refined recommendation.",
             "confidence": 0.91,
-            "rationale": ["The payment failure evidence is clear."],
+            "rationale": ["The requested item edit is concrete and still pre-shipment."],
             "requires_human": False,
             "tool_calls": [{"tool": "tampered"}],
             "matched_fop_ids": [],
@@ -19,20 +19,20 @@ def test_subagent_refinement_keeps_tool_plan_and_approval_fields_locked(monkeypa
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setattr(llm_layer, "_invoke_json", fake_invoke_json)
     proposed = {
-        "type": "payment_failure",
+        "type": "item_change_request",
         "summary": "Base summary.",
         "recommendation": "Base recommendation.",
         "requires_human": True,
-        "required_approvals": ["payment_reauth"],
-        "tool_calls": [{"tool": "stripe_get_charge"}],
-        "matched_fop_ids": ["fop_payment_failure_reauth"],
+        "required_approvals": ["order_edit"],
+        "tool_calls": [{"tool": "shopify_apply_order_edit"}],
+        "matched_fop_ids": ["fop_item_change_zero_delta"],
         "hard_constraints": ["Draft before write."],
         "confidence": 0.83,
         "rationale": ["Base rationale."],
     }
 
     refined = llm_layer.refine_subagent_proposal(
-        state={"exception_type": "payment_failure"},
+        state={"exception_type": "item_change_request"},
         proposed_action=proposed,
     )
 
@@ -40,5 +40,5 @@ def test_subagent_refinement_keeps_tool_plan_and_approval_fields_locked(monkeypa
     assert refined["recommendation"] == "Refined recommendation."
     assert refined["confidence"] == 0.91
     assert refined["requires_human"] is True
-    assert refined["tool_calls"] == [{"tool": "stripe_get_charge"}]
-    assert refined["matched_fop_ids"] == ["fop_payment_failure_reauth"]
+    assert refined["tool_calls"] == [{"tool": "shopify_apply_order_edit"}]
+    assert refined["matched_fop_ids"] == ["fop_item_change_zero_delta"]

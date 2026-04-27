@@ -49,11 +49,11 @@ def test_supervisor_classifies_exception_when_caller_omits_type() -> None:
 def test_supervisor_records_anthropic_refinement_metadata(monkeypatch) -> None:
     def fake_refinement(**_: object) -> SupervisorRefinement:
         return SupervisorRefinement(
-            exception_type="payment_failure",
+            exception_type="item_change_request",
             confidence=0.77,
-            signals=["Anthropic confirmed failed payment evidence."],
+            signals=["Anthropic confirmed a concrete pre-shipment item edit request."],
             source="anthropic_supervisor",
-            model="claude-sonnet-test",
+            model="claude-opus-test",
         )
 
     monkeypatch.setattr(graph_module, "refine_supervisor_route", fake_refinement)
@@ -61,19 +61,31 @@ def test_supervisor_records_anthropic_refinement_metadata(monkeypatch) -> None:
         {
             "merchant_id": "demo-merchant",
             "case_id": "case_demo_llm_route",
-            "order": {"id": "gid://shopify/Order/11", "email": "buyer@example.com"},
-            "context": {"payment": {"status": "failed", "charge_id": "ch_123"}},
+            "order": {"id": "gid://shopify/Order/11", "name": "#1011"},
+            "context": {
+                "customer_request": {"type": "item_change_request"},
+                "item_change": {
+                    "payment_delta": 0,
+                    "requested_changes": [
+                        {
+                            "action": "add",
+                            "variant_id": "gid://shopify/ProductVariant/21",
+                            "quantity": 1,
+                        }
+                    ],
+                },
+            },
         }
     )
 
     assert result["classification"] == {
-        "exception_type": "payment_failure",
+        "exception_type": "item_change_request",
         "confidence": 0.77,
-        "signals": ["Anthropic confirmed failed payment evidence."],
+        "signals": ["Anthropic confirmed a concrete pre-shipment item edit request."],
         "classifier": "anthropic_supervisor",
-        "model": "claude-sonnet-test",
+        "model": "claude-opus-test",
     }
-    assert result["route"] == "payment_failure"
+    assert result["route"] == "item_change_request"
 
 
 def test_human_resume_approves_planned_write_tool_calls() -> None:
@@ -102,57 +114,6 @@ def test_human_resume_approves_planned_write_tool_calls() -> None:
     assert all(call["idempotency_key"] for call in resumed["tool_calls_so_far"])
 
 
-def test_high_value_review_matches_fop_and_requires_release_approval() -> None:
-    result = graph.invoke(
-        {
-            "merchant_id": "demo-merchant",
-            "case_id": "case_demo_high_value",
-            "exception_type": "high_value_review",
-            "order": {
-                "id": "gid://shopify/Order/2",
-                "total_price": "812.00",
-                "country_code": "CA",
-            },
-            "context": {"customer": {"order_count": 0}},
-        }
-    )
-
-    assert result["proposed_action"]["requires_human"] is True
-    assert result["proposed_action"]["required_approvals"] == ["release_fulfillment"]
-    assert result["proposed_action"]["matched_fop_ids"] == [
-        "fop_high_value_first_time_international"
-    ]
-    assert result["route"] == "high_value_review"
-
-
-def test_address_validation_drafts_message_before_fulfillment_change() -> None:
-    result = graph.invoke(
-        {
-            "merchant_id": "demo-merchant",
-            "case_id": "case_demo_address",
-            "exception_type": "address_validation",
-            "order": {
-                "id": "gid://shopify/Order/3",
-                "name": "#1003",
-                "email": "customer@example.com",
-            },
-            "context": {
-                "address_validation": {
-                    "is_valid": False,
-                    "issues": ["missing apartment number"],
-                    "suggested_address": {"address1": "100 Market St", "city": "San Francisco"},
-                },
-                "ticket": {"id": 12345},
-            },
-        }
-    )
-
-    assert result["active_fops"][0]["id"] == "fop_invalid_address_hold"
-    assert result["proposed_action"]["requires_human"] is True
-    assert result["proposed_action"]["tool_calls"][1]["tool"] == "gorgias_draft_reply"
-    assert "Draft the customer-facing message" in result["fop_prompt_block"]
-
-
 def test_inventory_conflict_proposes_partial_shipment() -> None:
     result = graph.invoke(
         {
@@ -179,27 +140,6 @@ def test_inventory_conflict_proposes_partial_shipment() -> None:
     ]
 
 
-def test_payment_failure_drafts_reauthorization_message() -> None:
-    result = graph.invoke(
-        {
-            "merchant_id": "demo-merchant",
-            "case_id": "case_demo_payment",
-            "exception_type": "payment_failure",
-            "order": {"id": "gid://shopify/Order/6", "email": "buyer@example.com"},
-            "context": {
-                "payment": {"status": "failed", "charge_id": "ch_123"},
-                "ticket": {"id": 555},
-            },
-        }
-    )
-
-    assert result["active_fops"][0]["id"] == "fop_payment_failure_reauth"
-    assert result["proposed_action"]["requires_human"] is True
-    assert result["proposed_action"]["tool_calls"][0]["tool"] == "stripe_get_charge"
-    assert result["proposed_action"]["tool_calls"][0]["write"] is False
-    assert result["proposed_action"]["tool_calls"][1]["tool"] == "gorgias_draft_reply"
-
-
 def test_low_risk_fraud_case_auto_resolves_without_write_tools() -> None:
     result = graph.invoke(
         {
@@ -215,3 +155,215 @@ def test_low_risk_fraud_case_auto_resolves_without_write_tools() -> None:
     assert result["resolution"]["status"] == "auto_resolved"
     assert result["proposed_action"]["requires_human"] is False
     assert result["tool_calls_so_far"] == []
+
+
+def test_address_change_request_updates_shipping_address_before_shipment() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_address_change",
+            "exception_type": "address_change_request",
+            "order": {"id": "gid://shopify/Order/12", "name": "#1012"},
+            "context": {
+                "customer_request": {
+                    "type": "address_change_request",
+                    "requested_address": {
+                        "address1": "123 New St",
+                        "city": "Los Angeles",
+                        "province": "CA",
+                        "zip": "90001",
+                        "country": "US",
+                    },
+                },
+                "ticket": {"id": 456},
+            },
+        }
+    )
+
+    assert result["route"] == "address_change_request"
+    assert result["proposed_action"]["matched_fop_ids"] == ["fop_address_change_pre_ship"]
+    assert [call["tool"] for call in result["proposed_action"]["tool_calls"][:3]] == [
+        "shopify_hold_fulfillment_order",
+        "shopify_update_shipping_address",
+        "shopify_update_order_note",
+    ]
+
+
+def test_item_change_request_uses_shopify_order_edit_for_zero_delta_swap() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_item_change",
+            "exception_type": "item_change_request",
+            "order": {"id": "gid://shopify/Order/13", "name": "#1013"},
+            "context": {
+                "customer_request": {"type": "item_change_request"},
+                "item_change": {
+                    "payment_delta": 0,
+                    "requested_changes": [
+                        {
+                            "action": "swap",
+                            "line_item_id": "gid://shopify/CalculatedLineItem/1",
+                            "variant_id": "gid://shopify/ProductVariant/2",
+                        }
+                    ],
+                },
+                "ticket": {"id": 457},
+            },
+        }
+    )
+
+    assert result["route"] == "item_change_request"
+    assert result["proposed_action"]["matched_fop_ids"] == ["fop_item_change_zero_delta"]
+    assert "shopify_apply_order_edit" in [
+        call["tool"] for call in result["proposed_action"]["tool_calls"]
+    ]
+
+
+def test_order_cancellation_request_cancels_pre_shipment_order() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_cancel",
+            "exception_type": "order_cancellation_request",
+            "order": {"id": "gid://shopify/Order/14", "name": "#1014"},
+            "context": {"customer_request": {"type": "cancel_order"}},
+        }
+    )
+
+    assert result["route"] == "order_cancellation_request"
+    assert result["proposed_action"]["matched_fop_ids"] == ["fop_pre_ship_cancellation"]
+    assert result["proposed_action"]["tool_calls"][0]["tool"] == "shopify_cancel_order"
+
+
+def test_order_not_picked_reads_3pl_status_and_drafts_update() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_not_picked",
+            "exception_type": "order_not_picked",
+            "order": {
+                "id": "gid://shopify/Order/15",
+                "name": "#1015",
+                "created_at": "2026-04-25T08:00:00Z",
+            },
+            "context": {
+                "fulfillment": {
+                    "provider": "shipbob",
+                    "order_id": 2001,
+                    "age_hours": 30,
+                    "sla_hours": 24,
+                },
+                "ticket": {"id": 458},
+            },
+        }
+    )
+
+    assert result["route"] == "order_not_picked"
+    assert result["proposed_action"]["matched_fop_ids"] == ["fop_pick_sla_breach_proactive_update"]
+    assert result["proposed_action"]["tool_calls"][0]["tool"] == "shipbob_get_order"
+
+
+def test_stuck_in_transit_reads_shipment_and_drafts_tracking_reply() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_stuck_transit",
+            "exception_type": "stuck_in_transit",
+            "order": {"id": "gid://shopify/Order/16", "name": "#1016"},
+            "context": {
+                "shipment": {
+                    "provider": "shipstation",
+                    "shipment_id": 3002,
+                    "status": "in_transit",
+                    "days_since_last_scan": 4,
+                },
+                "ticket": {"id": 459},
+            },
+        }
+    )
+
+    assert result["route"] == "stuck_in_transit"
+    assert result["proposed_action"]["matched_fop_ids"] == [
+        "fop_stuck_in_transit_customer_update"
+    ]
+    assert result["proposed_action"]["tool_calls"][0]["tool"] == "shipstation_get_shipment"
+
+
+def test_wismo_drafts_concise_tracking_reply() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_wismo",
+            "exception_type": "wismo",
+            "order": {"id": "gid://shopify/Order/17", "name": "#1017"},
+            "context": {
+                "customer_request": {"type": "wismo"},
+                "shipment": {"status": "out_for_delivery", "tracking_number": "1Z123"},
+                "ticket": {"id": 460},
+            },
+        }
+    )
+
+    assert result["route"] == "wismo"
+    assert result["proposed_action"]["matched_fop_ids"] == ["fop_wismo_tracking_reply"]
+    assert result["proposed_action"]["tool_calls"][-1]["tool"] == "gorgias_draft_reply"
+
+
+def test_delivered_not_received_reviews_claim_history() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_missing_delivery",
+            "exception_type": "delivered_not_received",
+            "order": {
+                "id": "gid://shopify/Order/18",
+                "name": "#1018",
+                "email": "buyer@example.com",
+            },
+            "context": {
+                "delivery": {"reported_missing": True, "status": "delivered"},
+                "customer": {
+                    "order_count": 3,
+                    "missing_claim_count": 0,
+                    "email": "buyer@example.com",
+                },
+                "ticket": {"id": 461},
+            },
+        }
+    )
+
+    assert result["route"] == "delivered_not_received"
+    assert result["proposed_action"]["matched_fop_ids"] == [
+        "fop_delivered_not_received_review"
+    ]
+    assert [call["tool"] for call in result["proposed_action"]["tool_calls"][:2]] == [
+        "shopify_search_orders",
+        "gorgias_search_customer",
+    ]
+
+
+def test_damaged_in_transit_drafts_reply_and_note() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_damage",
+            "exception_type": "damaged_in_transit",
+            "order": {"id": "gid://shopify/Order/19", "name": "#1019"},
+            "context": {
+                "delivery": {
+                    "reported_damaged": True,
+                    "damage_severity": "minor",
+                    "photo_evidence": True,
+                },
+                "ticket": {"id": 462},
+            },
+        }
+    )
+
+    assert result["route"] == "damaged_in_transit"
+    assert result["proposed_action"]["matched_fop_ids"] == ["fop_damaged_in_transit_review"]
+    assert [call["tool"] for call in result["proposed_action"]["tool_calls"][:2]] == [
+        "gorgias_draft_reply",
+        "shopify_update_order_note",
+    ]

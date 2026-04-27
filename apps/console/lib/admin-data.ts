@@ -70,7 +70,7 @@ const API_BASE_URL =
   process.env.INTERNAL_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export async function loadAdminConsoleData(): Promise<AdminConsoleData> {
-  const fopYaml = await readPhase0Fops();
+  const fopYaml = await readOrderExceptionFops();
   const apiCases = await loadApiCases();
   if (apiCases.length > 0) {
     const evalReviews = await loadApiEvalReviews();
@@ -138,7 +138,7 @@ async function apiFetch<T>(pathname: string, token: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function readPhase0Fops(): Promise<string> {
+async function readOrderExceptionFops(): Promise<string> {
   const filePath = path.join(process.cwd(), "..", "agents", "fops", "demo-merchant.yaml");
   try {
     return await readFile(filePath, "utf8");
@@ -192,13 +192,13 @@ function fixtureCases(): CaseDetail[] {
       ],
     },
     {
-      id: "case_demo_address",
+      id: "case_demo_address_change",
       merchant_id: merchantId,
       merchant_name: "Demo Merchant",
-      type: "address_validation",
-      status: "open",
+      type: "address_change_request",
+      status: "pending_approval",
       subject_ref: { order_id: "gid://shopify/Order/3", order_name: "#1003", value: "$128.00" },
-      langgraph_thread_id: "thread_demo_address",
+      langgraph_thread_id: "thread_demo_address_change",
       langsmith_trace_url: null,
       resolution: null,
       events: [
@@ -207,8 +207,8 @@ function fixtureCases(): CaseDetail[] {
           topic: "orders/updated",
         }),
         fixtureEvent("agent.proposal", "agent", {
-          summary: "Address validation found a missing apartment number.",
-          recommendation: "Hold fulfillment and send the customer a confirmation draft.",
+          summary: "Customer requested a pre-shipment address change and provided a full replacement address.",
+          recommendation: "Hold fulfillment, sync the shipping address update, and confirm the change back to the customer.",
         }),
       ],
     },

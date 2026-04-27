@@ -21,9 +21,9 @@ Automatic failure conditions:
 
 Low-confidence fallback handling:
 
-- The classifier may route low-signal cases to `high_value_review` as a safe holding lane.
-- Do not score this as a precise high-value classification unless the signals include value, country, and first-time customer evidence.
-- Reward the run only if the rationale clearly says it is a low-confidence human-review fallback.
+- The classifier may route low-signal cases to `fraud_triage` as a conservative no-op fallback, or to `wismo` when only shipment context is present.
+- Do not score those as precise fraud or tracking classifications unless the signals clearly justify them.
+- Reward the run only if the rationale clearly says it is a low-confidence Tier 1 fallback.
 
 Suggested judge prompt:
 

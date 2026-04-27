@@ -17,50 +17,31 @@
     "tags": ["fraud", "money_movement", "top_10"]
   },
   {
-    "id": "fraud_score_string_cancel_refund",
-    "title": "String fraud score still triggers fraud FOP",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_fraud_string",
-      "exception_type": "fraud_triage",
-      "order": { "id": "gid://shopify/Order/1002" },
-      "context": { "risk": { "score": "85" } }
-    },
-    "expected": {
-      "exception_type": "fraud_triage",
-      "requires_human": true,
-      "matched_fop_ids": ["fop_fraud_score_cancel"],
-      "tool_calls": ["shopify_cancel_order", "shopify_create_refund"]
-    },
-    "tags": ["fraud", "synthetic_variant"]
-  },
-  {
     "id": "fraud_medium_score_manual_hold",
     "title": "Medium fraud score holds for manual review",
     "input": {
       "merchant_id": "demo-merchant",
       "case_id": "eval_fraud_medium",
       "exception_type": "fraud_triage",
-      "order": { "id": "gid://shopify/Order/1003" },
+      "order": { "id": "gid://shopify/Order/1002" },
       "context": { "risk": { "score": 65 } }
     },
     "expected": {
       "exception_type": "fraud_triage",
       "requires_human": true,
-      "matched_fop_ids": [],
-      "tool_calls": ["shopify_update_order_note"]
+      "matched_fop_ids": ["fop_fraud_gray_zone_hold"],
+      "tool_calls": ["shopify_hold_fulfillment_order", "shopify_update_order_note"]
     },
     "tags": ["fraud", "top_10"]
   },
   {
-    "id": "fraud_low_score_auto_proceed",
-    "title": "Low fraud score proceeds without writes",
+    "id": "tier1_low_signal_fallback",
+    "title": "Low-signal case falls back conservatively",
     "input": {
       "merchant_id": "demo-merchant",
-      "case_id": "eval_fraud_low",
-      "exception_type": "fraud_triage",
-      "order": { "id": "gid://shopify/Order/1004" },
-      "context": { "risk": { "score": 12 } }
+      "case_id": "eval_fallback_low_signal",
+      "order": { "id": "gid://shopify/Order/1003", "total_price": "42.00" },
+      "context": {}
     },
     "expected": {
       "exception_type": "fraud_triage",
@@ -72,265 +53,129 @@
     "tags": ["fraud", "autonomous"]
   },
   {
-    "id": "address_missing_apartment",
-    "title": "Missing apartment number drafts confirmation",
+    "id": "address_change_pre_ship_update",
+    "title": "Pre-shipment address change updates Shopify address",
     "input": {
       "merchant_id": "demo-merchant",
-      "case_id": "eval_address_apt",
-      "exception_type": "address_validation",
-      "order": {
-        "id": "gid://shopify/Order/2001",
-        "name": "#2001",
-        "email": "buyer@example.com"
-      },
+      "case_id": "eval_address_change_update",
+      "exception_type": "address_change_request",
+      "order": { "id": "gid://shopify/Order/2001", "name": "#2001" },
       "context": {
-        "address_validation": {
-          "is_valid": false,
-          "issues": ["missing apartment number"],
-          "suggested_address": { "address1": "100 Market St", "city": "San Francisco" }
-        },
-        "ticket": { "id": 12345 }
+        "customer_request": {
+          "type": "address_change_request",
+          "requested_address": {
+            "address1": "123 New St",
+            "city": "Los Angeles",
+            "province": "CA",
+            "zip": "90001",
+            "country": "US"
+          }
+        }
       }
     },
     "expected": {
-      "exception_type": "address_validation",
+      "exception_type": "address_change_request",
       "requires_human": true,
-      "matched_fop_ids": ["fop_invalid_address_hold"],
-      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+      "matched_fop_ids": ["fop_address_change_pre_ship"],
+      "tool_calls": [
+        "shopify_hold_fulfillment_order",
+        "shopify_update_shipping_address",
+        "shopify_update_order_note"
+      ]
     },
-    "tags": ["address", "customer_message", "top_10"]
+    "tags": ["address_change", "top_10"]
   },
   {
-    "id": "address_ambiguous_status",
-    "title": "Ambiguous address status triggers hold",
+    "id": "address_change_missing_details",
+    "title": "Address change without corrected address requests clarification",
     "input": {
       "merchant_id": "demo-merchant",
-      "case_id": "eval_address_ambiguous",
-      "order": {
-        "id": "gid://shopify/Order/2002",
-        "name": "#2002",
-        "email": "buyer@example.com"
-      },
+      "case_id": "eval_address_change_missing",
+      "exception_type": "address_change_request",
+      "order": { "id": "gid://shopify/Order/2002", "name": "#2002" },
       "context": {
-        "address_validation": {
-          "status": "ambiguous",
-          "issues": ["multiple address matches"]
-        },
-        "ticket": { "id": 12346 }
+        "customer_request": { "type": "address_change_request" },
+        "ticket": { "id": 456 }
       }
     },
     "expected": {
-      "exception_type": "address_validation",
+      "exception_type": "address_change_request",
       "requires_human": true,
-      "matched_fop_ids": ["fop_invalid_address_hold"],
-      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+      "matched_fop_ids": ["fop_address_change_pre_ship"],
+      "tool_calls": [
+        "shopify_hold_fulfillment_order",
+        "gorgias_draft_reply",
+        "shopify_update_order_note"
+      ]
     },
-    "tags": ["address", "synthetic_variant"]
+    "tags": ["address_change", "customer_message"]
   },
   {
-    "id": "address_invalid_status",
-    "title": "Invalid address status with no suggestion asks customer",
+    "id": "item_change_zero_delta_swap",
+    "title": "Zero-delta item swap uses Shopify order edit",
     "input": {
       "merchant_id": "demo-merchant",
-      "case_id": "eval_address_invalid",
-      "exception_type": "address_validation",
-      "order": {
-        "id": "gid://shopify/Order/2003",
-        "name": "#2003",
-        "email": "buyer@example.com"
-      },
+      "case_id": "eval_item_change_zero_delta",
+      "exception_type": "item_change_request",
+      "order": { "id": "gid://shopify/Order/3001", "name": "#3001" },
       "context": {
-        "address_validation": {
-          "status": "invalid",
-          "issues": ["postal code not found"]
-        },
-        "ticket": { "id": 12347 }
+        "customer_request": { "type": "item_change_request" },
+        "item_change": {
+          "payment_delta": 0,
+          "requested_changes": [
+            {
+              "action": "swap",
+              "line_item_id": "gid://shopify/CalculatedLineItem/1",
+              "variant_id": "gid://shopify/ProductVariant/2"
+            }
+          ]
+        }
       }
     },
     "expected": {
-      "exception_type": "address_validation",
+      "exception_type": "item_change_request",
       "requires_human": true,
-      "matched_fop_ids": ["fop_invalid_address_hold"],
-      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+      "matched_fop_ids": ["fop_item_change_zero_delta"],
+      "tool_calls": [
+        "shopify_hold_fulfillment_order",
+        "shopify_apply_order_edit",
+        "shopify_update_order_note"
+      ]
     },
-    "tags": ["address"]
+    "tags": ["item_change", "top_10"]
   },
   {
-    "id": "address_valid_auto_proceed",
-    "title": "Valid address needs no hold",
+    "id": "order_cancellation_pre_ship",
+    "title": "Pre-shipment cancellation uses native Shopify cancellation",
     "input": {
       "merchant_id": "demo-merchant",
-      "case_id": "eval_address_valid",
-      "exception_type": "address_validation",
-      "order": { "id": "gid://shopify/Order/2004", "name": "#2004" },
-      "context": { "address_validation": { "is_valid": true, "status": "valid" } }
+      "case_id": "eval_pre_ship_cancel",
+      "exception_type": "order_cancellation_request",
+      "order": { "id": "gid://shopify/Order/4001", "name": "#4001" },
+      "context": { "customer_request": { "type": "cancel_order" } }
     },
     "expected": {
-      "exception_type": "address_validation",
-      "requires_human": false,
-      "matched_fop_ids": [],
-      "tool_calls": [],
-      "resolution_status": "auto_resolved"
-    },
-    "tags": ["address", "autonomous"]
-  },
-  {
-    "id": "payment_failed_draft_reauth",
-    "title": "Failed payment drafts reauthorization message",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_payment_failed",
-      "order": { "id": "gid://shopify/Order/3001", "email": "buyer@example.com" },
-      "context": { "payment": { "status": "failed", "charge_id": "ch_3001" }, "ticket": { "id": 555 } }
-    },
-    "expected": {
-      "exception_type": "payment_failure",
+      "exception_type": "order_cancellation_request",
       "requires_human": true,
-      "matched_fop_ids": ["fop_payment_failure_reauth"],
-      "tool_calls": ["stripe_get_charge", "gorgias_draft_reply", "shopify_update_order_note"]
+      "matched_fop_ids": ["fop_pre_ship_cancellation"],
+      "tool_calls": ["shopify_cancel_order", "shopify_update_order_note"]
     },
-    "tags": ["payment", "customer_message", "top_10"]
+    "tags": ["cancellation", "money_movement", "top_10"]
   },
   {
-    "id": "payment_requires_action",
-    "title": "Payment requiring action drafts customer request",
+    "id": "inventory_conflict_partial_ship",
+    "title": "Inventory conflict prepares partial-shipment response",
     "input": {
       "merchant_id": "demo-merchant",
-      "case_id": "eval_payment_action",
-      "exception_type": "payment_failure",
-      "order": { "id": "gid://shopify/Order/3002", "email": "buyer@example.com" },
-      "context": { "payment": { "status": "requires_action", "charge_id": "ch_3002" }, "ticket": { "id": 556 } }
-    },
-    "expected": {
-      "exception_type": "payment_failure",
-      "requires_human": true,
-      "matched_fop_ids": ["fop_payment_failure_reauth"],
-      "tool_calls": ["stripe_get_charge", "gorgias_draft_reply", "shopify_update_order_note"]
-    },
-    "tags": ["payment"]
-  },
-  {
-    "id": "payment_declined_from_order_status",
-    "title": "Declined financial status routes to payment failure",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_payment_declined",
-      "order": {
-        "id": "gid://shopify/Order/3003",
-        "email": "buyer@example.com",
-        "financial_status": "declined"
-      },
-      "context": { "ticket": { "id": 557 } }
-    },
-    "expected": {
-      "exception_type": "payment_failure",
-      "requires_human": true,
-      "matched_fop_ids": [],
-      "tool_calls": ["stripe_get_charge", "gorgias_draft_reply", "shopify_update_order_note"]
-    },
-    "tags": ["payment", "synthetic_variant"]
-  },
-  {
-    "id": "payment_paid_auto_monitor",
-    "title": "Paid order does not trigger payment workflow",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_payment_paid",
-      "exception_type": "payment_failure",
-      "order": { "id": "gid://shopify/Order/3004", "financial_status": "paid" },
-      "context": {}
-    },
-    "expected": {
-      "exception_type": "payment_failure",
-      "requires_human": false,
-      "matched_fop_ids": [],
-      "tool_calls": [],
-      "resolution_status": "auto_resolved"
-    },
-    "tags": ["payment", "autonomous"]
-  },
-  {
-    "id": "high_value_first_time_international",
-    "title": "First-time international order over threshold is held",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_high_value_ca",
-      "order": { "id": "gid://shopify/Order/4001", "total_price": "812.00", "country_code": "CA" },
-      "context": { "customer": { "order_count": 0 } }
-    },
-    "expected": {
-      "exception_type": "high_value_review",
-      "requires_human": true,
-      "matched_fop_ids": ["fop_high_value_first_time_international"],
-      "tool_calls": ["shopify_hold_fulfillment_order", "shopify_update_order_note"]
-    },
-    "tags": ["high_value", "top_10"]
-  },
-  {
-    "id": "high_value_repeat_customer_proceed",
-    "title": "Repeat international customer does not match first-time FOP",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_high_value_repeat",
-      "exception_type": "high_value_review",
-      "order": { "id": "gid://shopify/Order/4002", "total_price": "900.00", "country_code": "CA" },
-      "context": { "customer": { "order_count": 4 } }
-    },
-    "expected": {
-      "exception_type": "high_value_review",
-      "requires_human": false,
-      "matched_fop_ids": [],
-      "tool_calls": [],
-      "resolution_status": "auto_resolved"
-    },
-    "tags": ["high_value", "autonomous"]
-  },
-  {
-    "id": "high_value_domestic_proceed",
-    "title": "Domestic high-value order does not match international FOP",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_high_value_us",
-      "exception_type": "high_value_review",
-      "order": { "id": "gid://shopify/Order/4003", "total_price": "1000.00", "country_code": "US" },
-      "context": { "customer": { "order_count": 0 } }
-    },
-    "expected": {
-      "exception_type": "high_value_review",
-      "requires_human": false,
-      "matched_fop_ids": [],
-      "tool_calls": [],
-      "resolution_status": "auto_resolved"
-    },
-    "tags": ["high_value", "autonomous"]
-  },
-  {
-    "id": "high_value_mexico_first_time",
-    "title": "First-time Mexico order over threshold is held",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_high_value_mx",
-      "exception_type": "high_value_review",
-      "order": { "id": "gid://shopify/Order/4004", "total_price": "1500.00", "country_code": "MX" },
-      "context": { "customer": { "order_count": 0 } }
-    },
-    "expected": {
-      "exception_type": "high_value_review",
-      "requires_human": true,
-      "matched_fop_ids": ["fop_high_value_first_time_international"],
-      "tool_calls": ["shopify_hold_fulfillment_order", "shopify_update_order_note"]
-    },
-    "tags": ["high_value"]
-  },
-  {
-    "id": "inventory_oos_boolean",
-    "title": "Out-of-stock boolean proposes partial shipment",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_inventory_bool",
+      "case_id": "eval_inventory_partial",
+      "exception_type": "inventory_conflict",
       "order": { "id": "gid://shopify/Order/5001", "email": "buyer@example.com" },
       "context": {
-        "inventory": { "has_out_of_stock_line": true, "out_of_stock_lines": [{ "sku": "TEE-BLACK-M" }] },
+        "inventory": {
+          "has_out_of_stock_line": true,
+          "out_of_stock_lines": [{ "sku": "TEE-BLACK-M" }],
+          "restock_eta_days": 4
+        },
         "ticket": { "id": 987 }
       }
     },
@@ -338,69 +183,156 @@
       "exception_type": "inventory_conflict",
       "requires_human": true,
       "matched_fop_ids": ["fop_inventory_oos_partial_ship"],
-      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+      "tool_calls": [
+        "shopify_hold_fulfillment_order",
+        "gorgias_draft_reply",
+        "shopify_update_order_note"
+      ]
     },
     "tags": ["inventory", "top_10"]
   },
   {
-    "id": "inventory_oos_lines_only",
-    "title": "Out-of-stock line list still proposes partial shipment",
+    "id": "order_not_picked_sla_breach",
+    "title": "3PL pick SLA breach triggers proactive update",
     "input": {
       "merchant_id": "demo-merchant",
-      "case_id": "eval_inventory_lines",
-      "exception_type": "inventory_conflict",
-      "order": { "id": "gid://shopify/Order/5002", "email": "buyer@example.com" },
+      "case_id": "eval_order_not_picked",
+      "exception_type": "order_not_picked",
+      "order": {
+        "id": "gid://shopify/Order/6001",
+        "name": "#6001",
+        "created_at": "2026-04-25T08:00:00Z"
+      },
       "context": {
-        "inventory": { "out_of_stock_lines": [{ "sku": "HOODIE-GREEN-L" }] },
-        "ticket": { "id": 988 }
+        "fulfillment": {
+          "provider": "shipbob",
+          "order_id": 2001,
+          "age_hours": 30,
+          "sla_hours": 24
+        },
+        "ticket": { "id": 458 }
       }
     },
     "expected": {
-      "exception_type": "inventory_conflict",
+      "exception_type": "order_not_picked",
       "requires_human": true,
-      "matched_fop_ids": [],
-      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+      "matched_fop_ids": ["fop_pick_sla_breach_proactive_update"],
+      "tool_calls": ["shipbob_get_order", "gorgias_draft_reply", "shopify_update_order_note"]
     },
-    "tags": ["inventory", "synthetic_variant"]
+    "tags": ["fulfillment", "shipment"]
   },
   {
-    "id": "inventory_no_conflict_auto_proceed",
-    "title": "No inventory conflict proceeds",
+    "id": "stuck_in_transit_stale_scan",
+    "title": "Stale in-transit shipment drafts tracking update",
     "input": {
       "merchant_id": "demo-merchant",
-      "case_id": "eval_inventory_clear",
-      "exception_type": "inventory_conflict",
-      "order": { "id": "gid://shopify/Order/5003" },
-      "context": { "inventory": { "has_out_of_stock_line": false } }
-    },
-    "expected": {
-      "exception_type": "inventory_conflict",
-      "requires_human": false,
-      "matched_fop_ids": [],
-      "tool_calls": [],
-      "resolution_status": "auto_resolved"
-    },
-    "tags": ["inventory", "autonomous"]
-  },
-  {
-    "id": "inventory_shipbob_backorder",
-    "title": "3PL backorder maps to inventory conflict",
-    "input": {
-      "merchant_id": "demo-merchant",
-      "case_id": "eval_inventory_shipbob",
-      "order": { "id": "gid://shopify/Order/5004", "email": "buyer@example.com" },
+      "case_id": "eval_stuck_in_transit",
+      "exception_type": "stuck_in_transit",
+      "order": { "id": "gid://shopify/Order/7001", "name": "#7001" },
       "context": {
-        "inventory": { "has_out_of_stock_line": true, "out_of_stock_lines": [{ "sku": "BAG-NAVY" }] },
-        "fulfillment": { "provider": "shipbob", "status": "backordered" },
-        "ticket": { "id": 989 }
+        "shipment": {
+          "provider": "shipstation",
+          "shipment_id": 3002,
+          "status": "in_transit",
+          "days_since_last_scan": 4
+        },
+        "ticket": { "id": 459 }
       }
     },
     "expected": {
-      "exception_type": "inventory_conflict",
+      "exception_type": "stuck_in_transit",
       "requires_human": true,
-      "matched_fop_ids": ["fop_inventory_oos_partial_ship"],
-      "tool_calls": ["shopify_hold_fulfillment_order", "gorgias_draft_reply", "shopify_update_order_note"]
+      "matched_fop_ids": ["fop_stuck_in_transit_customer_update"],
+      "tool_calls": ["shipstation_get_shipment", "gorgias_draft_reply", "shopify_update_order_note"]
     },
-    "tags": ["inventory", "3pl"]
+    "tags": ["shipment", "top_10"]
+  },
+  {
+    "id": "wismo_tracking_request",
+    "title": "Routine WISMO request drafts concise reply",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_wismo",
+      "exception_type": "wismo",
+      "order": { "id": "gid://shopify/Order/7002", "name": "#7002" },
+      "context": {
+        "customer_request": { "type": "wismo" },
+        "shipment": {
+          "provider": "shipstation",
+          "shipment_id": 3003,
+          "status": "out_for_delivery",
+          "tracking_number": "1Z123",
+          "estimated_delivery": "2026-04-28"
+        },
+        "ticket": { "id": 460 }
+      }
+    },
+    "expected": {
+      "exception_type": "wismo",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_wismo_tracking_reply"],
+      "tool_calls": ["shipstation_get_shipment", "gorgias_draft_reply"]
+    },
+    "tags": ["shipment", "customer_message"]
+  },
+  {
+    "id": "delivered_not_received_review",
+    "title": "Delivered-but-missing claim reviews customer history",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_delivered_missing",
+      "exception_type": "delivered_not_received",
+      "order": {
+        "id": "gid://shopify/Order/8001",
+        "name": "#8001",
+        "email": "buyer@example.com"
+      },
+      "context": {
+        "delivery": { "reported_missing": true, "status": "delivered" },
+        "customer": {
+          "order_count": 3,
+          "missing_claim_count": 0,
+          "email": "buyer@example.com"
+        },
+        "ticket": { "id": 461 }
+      }
+    },
+    "expected": {
+      "exception_type": "delivered_not_received",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_delivered_not_received_review"],
+      "tool_calls": [
+        "shopify_search_orders",
+        "gorgias_search_customer",
+        "gorgias_draft_reply",
+        "shopify_update_order_note"
+      ]
+    },
+    "tags": ["delivery", "top_10"]
+  },
+  {
+    "id": "damaged_in_transit_review",
+    "title": "Damage claim drafts apology and records evidence",
+    "input": {
+      "merchant_id": "demo-merchant",
+      "case_id": "eval_damaged_transit",
+      "exception_type": "damaged_in_transit",
+      "order": { "id": "gid://shopify/Order/8002", "name": "#8002" },
+      "context": {
+        "delivery": {
+          "reported_damaged": true,
+          "damage_severity": "minor",
+          "photo_evidence": true
+        },
+        "ticket": { "id": 462 }
+      }
+    },
+    "expected": {
+      "exception_type": "damaged_in_transit",
+      "requires_human": true,
+      "matched_fop_ids": ["fop_damaged_in_transit_review"],
+      "tool_calls": ["gorgias_draft_reply", "shopify_update_order_note"]
+    },
+    "tags": ["delivery", "customer_message"]
   }
 ]

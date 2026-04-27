@@ -34,7 +34,8 @@ class Settings(BaseSettings):
     shopify_client_secret: str | None = None
     shopify_admin_api_version: str = "2025-10"
     shopify_oauth_scopes: str = (
-        "read_orders,write_orders,read_customers,read_fulfillments,write_fulfillments"
+        "read_orders,write_orders,read_customers,read_fulfillments,write_fulfillments,"
+        "read_order_edits,write_order_edits"
     )
     shopify_webhook_secret: str | None = None
     gorgias_client_id: str | None = None

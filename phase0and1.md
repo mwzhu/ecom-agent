@@ -187,7 +187,7 @@ This is explicitly admin-only UI to unblock the team; Phase 1 polishes it into t
 
 **Exit:** we can run the agent on a real design partner order and review/correct from the panel.
 
-### W6–8: Evals + design partner onboarding
+### W6–8: Evals
 
 Eval infrastructure (the hiring/credibility moat the roadmap calls out):
 
@@ -197,11 +197,6 @@ Eval infrastructure (the hiring/credibility moat the roadmap calls out):
   - LLM-as-judge (Claude Opus 4.7) for decision-quality scoring with a rubric tied to FOPs.
   - Regression gate: on every PR, run dataset experiment via LangSmith; fail CI if pass rate drops >2pp vs. `main`.
 - Online evals: LangSmith online evaluator on `-prod` project tags any run where the judge flags low confidence → queues for review in admin panel.
-
-Design partner onboarding:
-
-- 1 partner live (write actions enabled, approval-required on all money movement).
-- 2–3 in shadow mode (read-only ingestion, agent runs propose but don't act — compares proposals to what the partner actually did → feeds `eval_corrections`).
 
 **Phase 0 exit criteria (roadmap-aligned):**
 

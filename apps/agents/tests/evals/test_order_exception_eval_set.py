@@ -10,12 +10,21 @@ from agents.order_exception.evals import (
 )
 
 
-def test_order_exception_eval_dataset_has_phase0_coverage() -> None:
+def test_order_exception_eval_dataset_has_tier1_coverage() -> None:
     scenarios = load_scenarios()
     tags = {tag for scenario in scenarios for tag in scenario.get("tags", [])}
 
-    assert len(scenarios) >= 20
-    assert {"fraud", "address", "payment", "high_value", "inventory"}.issubset(tags)
+    assert len(scenarios) >= 10
+    assert {
+        "fraud",
+        "address_change",
+        "item_change",
+        "cancellation",
+        "inventory",
+        "fulfillment",
+        "shipment",
+        "delivery",
+    }.issubset(tags)
     assert sum(1 for scenario in scenarios if "top_10" in scenario.get("tags", [])) >= 5
 
 

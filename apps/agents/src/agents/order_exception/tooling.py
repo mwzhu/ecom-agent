@@ -7,7 +7,9 @@ from typing import Any
 JsonObject = dict[str, Any]
 
 WRITE_TOOLS = {
+    "shopify_apply_order_edit",
     "shopify_update_order_note",
+    "shopify_update_shipping_address",
     "shopify_create_refund",
     "shopify_hold_fulfillment_order",
     "shopify_cancel_order",

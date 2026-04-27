@@ -9,11 +9,16 @@ from langsmith import traceable
 from agents.order_exception.llm_layer import refine_supervisor_route
 from agents.order_exception.state import ExceptionType, OrderExceptionState, RouteName
 from agents.order_exception.subagents import (
-    address_validation_subagent,
+    address_change_request_subagent,
+    damaged_in_transit_subagent,
+    delivered_not_received_subagent,
     fraud_triage_subagent,
-    high_value_review_subagent,
     inventory_conflict_subagent,
-    payment_failure_subagent,
+    item_change_request_subagent,
+    order_cancellation_request_subagent,
+    order_not_picked_subagent,
+    stuck_in_transit_subagent,
+    wismo_subagent,
 )
 from agents.order_exception.tooling import mark_tool_calls, validate_tool_plan
 from agents.shared import evaluate_fops, load_fops_for_merchant
@@ -26,11 +31,16 @@ def classify(state: OrderExceptionState) -> OrderExceptionState:
     context = _object_dict(state.get("context"))
     supplied_exception_type = state.get("exception_type")
     if supplied_exception_type in {
-        "address_validation",
+        "address_change_request",
+        "damaged_in_transit",
+        "delivered_not_received",
         "fraud_triage",
-        "payment_failure",
-        "high_value_review",
         "inventory_conflict",
+        "item_change_request",
+        "order_cancellation_request",
+        "order_not_picked",
+        "stuck_in_transit",
+        "wismo",
     }:
         exception_type = _exception_type(supplied_exception_type)
         classification: dict[str, object] = {
@@ -106,7 +116,11 @@ def initialize(state: OrderExceptionState) -> OrderExceptionState:
 @traceable(name="order_exception_supervisor")
 def supervisor(state: OrderExceptionState) -> OrderExceptionState:
     route = _route_name(state.get("exception_type"))
-    model_profile = "opus-4.7" if route in {"fraud_triage", "high_value_review"} else "sonnet-4.6"
+    model_profile = (
+        "opus-4.7"
+        if route in {"delivered_not_received", "fraud_triage", "item_change_request"}
+        else "sonnet-4.6"
+    )
     return {
         **state,
         "route": route,
@@ -216,11 +230,16 @@ def build_graph(checkpointer: Any | None = None) -> Any:
     builder.add_node("classify", classify)
     builder.add_node("initialize", initialize)
     builder.add_node("supervisor", supervisor)
-    builder.add_node("address_validation", address_validation_subagent)
+    builder.add_node("address_change_request", address_change_request_subagent)
+    builder.add_node("damaged_in_transit", damaged_in_transit_subagent)
+    builder.add_node("delivered_not_received", delivered_not_received_subagent)
     builder.add_node("fraud_triage", fraud_triage_subagent)
-    builder.add_node("payment_failure", payment_failure_subagent)
-    builder.add_node("high_value_review", high_value_review_subagent)
     builder.add_node("inventory_conflict", inventory_conflict_subagent)
+    builder.add_node("item_change_request", item_change_request_subagent)
+    builder.add_node("order_cancellation_request", order_cancellation_request_subagent)
+    builder.add_node("order_not_picked", order_not_picked_subagent)
+    builder.add_node("stuck_in_transit", stuck_in_transit_subagent)
+    builder.add_node("wismo", wismo_subagent)
     builder.add_node("approval_gate", approval_gate)
     builder.add_node("finalize", finalize)
 
@@ -231,19 +250,29 @@ def build_graph(checkpointer: Any | None = None) -> Any:
         "supervisor",
         route_from_state,
         {
-            "address_validation": "address_validation",
+            "address_change_request": "address_change_request",
+            "damaged_in_transit": "damaged_in_transit",
+            "delivered_not_received": "delivered_not_received",
             "fraud_triage": "fraud_triage",
-            "payment_failure": "payment_failure",
-            "high_value_review": "high_value_review",
             "inventory_conflict": "inventory_conflict",
+            "item_change_request": "item_change_request",
+            "order_cancellation_request": "order_cancellation_request",
+            "order_not_picked": "order_not_picked",
+            "stuck_in_transit": "stuck_in_transit",
+            "wismo": "wismo",
         },
     )
     for node in (
-        "address_validation",
+        "address_change_request",
+        "damaged_in_transit",
+        "delivered_not_received",
         "fraud_triage",
-        "payment_failure",
-        "high_value_review",
         "inventory_conflict",
+        "item_change_request",
+        "order_cancellation_request",
+        "order_not_picked",
+        "stuck_in_transit",
+        "wismo",
     ):
         builder.add_conditional_edges(
             node,
@@ -270,14 +299,19 @@ def _exception_type(value: object) -> ExceptionType:
 
 def _route_name(value: object) -> RouteName:
     if value in {
-        "address_validation",
+        "address_change_request",
+        "damaged_in_transit",
+        "delivered_not_received",
         "fraud_triage",
-        "payment_failure",
-        "high_value_review",
         "inventory_conflict",
+        "item_change_request",
+        "order_cancellation_request",
+        "order_not_picked",
+        "stuck_in_transit",
+        "wismo",
     }:
         return value  # type: ignore[return-value]
-    return "high_value_review"
+    return "fraud_triage"
 
 
 def _object_dict(value: object) -> dict[str, Any]:

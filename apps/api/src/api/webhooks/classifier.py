@@ -137,7 +137,18 @@ def _context_from_payload(
 ) -> JsonObject:
     raw_context = payload.get("context")
     context = dict(raw_context) if isinstance(raw_context, dict) else {}
-    for key in ("risk", "payment", "inventory", "address_validation", "fulfillment", "ticket"):
+    for key in (
+        "risk",
+        "payment",
+        "inventory",
+        "fulfillment",
+        "shipment",
+        "delivery",
+        "ticket",
+        "customer_request",
+        "address_change",
+        "item_change",
+    ):
         value = payload.get(key)
         if isinstance(value, dict):
             context[key] = value
@@ -147,7 +158,8 @@ def _context_from_payload(
     _lift_risk_context(context, payload, order)
     _lift_payment_context(context, payload, order)
     _lift_inventory_context(provider, context, payload, order)
-    _lift_address_context(context, payload, order)
+    _lift_customer_request_context(context, payload)
+    _lift_shipment_context(provider, context, payload)
     context.setdefault(
         "webhook",
         {
@@ -209,22 +221,69 @@ def _lift_inventory_context(
             or [{"provider": provider.value, "status": status}],
         }
 
+def _lift_customer_request_context(context: JsonObject, payload: JsonObject) -> None:
+    customer_request = context.get("customer_request")
+    if isinstance(customer_request, dict) and customer_request:
+        return
 
-def _lift_address_context(context: JsonObject, payload: JsonObject, order: JsonObject) -> None:
-    address = context.get("address_validation")
-    if isinstance(address, dict) and address:
+    request_type = payload.get("request_type") or _nested(payload, ["ticket", "intent"])
+    if isinstance(request_type, str) and request_type:
+        context["customer_request"] = {"type": request_type}
+
+    requested_address = payload.get("requested_address")
+    if isinstance(requested_address, dict) and requested_address:
+        existing = context.setdefault("customer_request", {})
+        if isinstance(existing, dict):
+            existing.setdefault("requested_address", requested_address)
+        context.setdefault("address_change", {"requested_address": requested_address})
+
+    requested_changes = payload.get("requested_changes")
+    if isinstance(requested_changes, list) and requested_changes:
+        existing = context.setdefault("customer_request", {})
+        if isinstance(existing, dict):
+            existing.setdefault("requested_changes", requested_changes)
+        context.setdefault("item_change", {"requested_changes": requested_changes})
+
+
+def _lift_shipment_context(
+    provider: IntegrationProvider,
+    context: JsonObject,
+    payload: JsonObject,
+) -> None:
+    shipment = context.get("shipment")
+    if isinstance(shipment, dict) and shipment:
         return
-    shipping = order.get("shipping_address") or payload.get("shipping_address")
-    if not isinstance(shipping, dict):
-        return
-    status = shipping.get("status") or shipping.get("validation_status")
-    issues = shipping.get("issues")
-    if shipping.get("is_valid") is False or status in {"invalid", "ambiguous", "incomplete"}:
-        context["address_validation"] = {
-            "is_valid": shipping.get("is_valid", False),
-            "status": status or "invalid",
-            "issues": issues if isinstance(issues, list) else [],
-            "suggested_address": shipping.get("suggested_address"),
+
+    tracking_number = payload.get("tracking_number") or payload.get("trackingNumber")
+    shipment_status = (
+        payload.get("shipment_status")
+        or payload.get("tracking_status")
+        or payload.get("carrier_status")
+    )
+    last_scan_at = payload.get("last_scan_at") or payload.get("lastCarrierScanAt")
+    days_since_last_scan = payload.get("days_since_last_scan")
+    if tracking_number or shipment_status or last_scan_at or days_since_last_scan is not None:
+        context["shipment"] = {
+            "provider": provider.value,
+            "tracking_number": tracking_number,
+            "status": shipment_status,
+            "last_scan_at": last_scan_at,
+            "days_since_last_scan": days_since_last_scan,
+            "estimated_delivery": payload.get("estimated_delivery"),
+            "shipment_id": payload.get("shipment_id"),
+        }
+
+    delivered_missing = payload.get("reported_missing")
+    delivered_damaged = payload.get("reported_damaged")
+    if delivered_missing or delivered_damaged:
+        context["delivery"] = {
+            "reported_missing": bool(delivered_missing),
+            "reported_damaged": bool(delivered_damaged),
+            "status": payload.get("delivery_status") or shipment_status,
+            "tracking_number": tracking_number,
+            "signature_on_file": payload.get("signature_on_file"),
+            "photo_evidence": payload.get("photo_evidence"),
+            "damage_severity": payload.get("damage_severity"),
         }
 
 

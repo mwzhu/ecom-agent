@@ -69,13 +69,18 @@ The local graph is registered as `order-exception`. A minimal input:
 }
 ```
 
-The graph routes through a supervisor into one of five v0 subagents:
+The graph routes through a supervisor into one of the Tier 1 subagents:
 
-- `address_validation`
+- `address_change_request`
+- `damaged_in_transit`
+- `delivered_not_received`
 - `fraud_triage`
-- `payment_failure`
-- `high_value_review`
 - `inventory_conflict`
+- `item_change_request`
+- `order_cancellation_request`
+- `order_not_picked`
+- `stuck_in_transit`
+- `wismo`
 
 Write proposals return a LangGraph interrupt containing the proposed action, matched FOPs,
 constraints, required approvals, and idempotent tool-call plan. Resume with a human decision,

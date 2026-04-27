@@ -3,19 +3,29 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 
 ExceptionType = Literal[
-    "address_validation",
+    "address_change_request",
+    "damaged_in_transit",
+    "delivered_not_received",
     "fraud_triage",
-    "payment_failure",
-    "high_value_review",
     "inventory_conflict",
+    "item_change_request",
+    "order_cancellation_request",
+    "order_not_picked",
+    "stuck_in_transit",
+    "wismo",
 ]
 
 RouteName = Literal[
-    "address_validation",
+    "address_change_request",
+    "damaged_in_transit",
+    "delivered_not_received",
     "fraud_triage",
-    "payment_failure",
-    "high_value_review",
     "inventory_conflict",
+    "item_change_request",
+    "order_cancellation_request",
+    "order_not_picked",
+    "stuck_in_transit",
+    "wismo",
 ]
 
 
