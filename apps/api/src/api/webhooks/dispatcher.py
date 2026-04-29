@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import Depends
 from langgraph_sdk import get_client
 
+from api.agents.dispatcher import langgraph_completion_webhook_url
 from api.config import Settings, get_settings
 from api.integrations import IntegrationProvider
 
@@ -57,6 +58,15 @@ class LangGraphWebhookDispatcher:
                 "context": dispatch.context,
                 "webhook_payload": dispatch.payload,
             },
+            metadata={
+                "merchant_id": str(dispatch.merchant_id),
+                "case_id": str(dispatch.case_id),
+                "trigger": "webhook",
+                "provider": dispatch.provider.value,
+                "event_id": dispatch.event_id,
+            },
+            webhook=langgraph_completion_webhook_url(self._settings),
+            multitask_strategy="reject",
         )
         return _value(run, "run_id") or _value(run, "id")
 

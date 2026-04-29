@@ -160,7 +160,7 @@ class ShopifyClient:
               }
             }
             """,
-            {"id": order_id},
+            {"id": _to_order_gid(order_id)},
         )
 
     async def search_orders(self, *, query: str, limit: int) -> JsonObject:
@@ -205,7 +205,7 @@ class ShopifyClient:
               }
             }
             """,
-            {"input": {"id": order_id, "note": note}},
+            {"input": {"id": _to_order_gid(order_id), "note": note}},
         )
         _mutation_payload(
             response,
@@ -242,7 +242,7 @@ class ShopifyClient:
               }
             }
             """,
-            {"input": {"id": order_id, "shippingAddress": shipping_address}},
+            {"input": {"id": _to_order_gid(order_id), "shippingAddress": shipping_address}},
         )
         _mutation_payload(
             response,
@@ -263,7 +263,7 @@ class ShopifyClient:
         shipping: JsonObject | None,
     ) -> JsonObject:
         payload: JsonObject = {
-            "orderId": order_id,
+            "orderId": _to_order_gid(order_id),
             "notify": notify_customer,
             "refundLineItems": refund_line_items,
             "transactions": transactions,
@@ -326,7 +326,7 @@ class ShopifyClient:
             }
             """,
             {
-                "orderId": order_id,
+                "orderId": _to_order_gid(order_id),
                 "reason": reason,
                 "restock": restock,
                 "notifyCustomer": notify_customer,
@@ -402,7 +402,7 @@ class ShopifyClient:
               }
             }
             """,
-            {"id": order_id},
+            {"id": _to_order_gid(order_id)},
         )
         payload = ensure_object(IntegrationProvider.SHOPIFY, begin.get("data"))
         begin_result = ensure_object(IntegrationProvider.SHOPIFY, payload.get("orderEditBegin"))
@@ -862,6 +862,12 @@ def _shop_domain(request: Any, credential: ProviderCredential) -> str:
     if isinstance(request.shop_domain, str) and request.shop_domain:
         return request.shop_domain
     return require_metadata_string(credential, "shop_domain")
+
+
+def _to_order_gid(order_id: str) -> str:
+    if order_id.startswith("gid://"):
+        return order_id
+    return f"gid://shopify/Order/{order_id}"
 
 
 def _normalize_shop_domain(shop_domain: str) -> str:

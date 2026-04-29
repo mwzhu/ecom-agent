@@ -342,16 +342,28 @@ select {
   color: var(--amber);
 }
 
+.statusDot.executing,
+.statusBadge.executing {
+  background: #e0f2fe;
+  color: var(--blue);
+}
+
 .statusDot.resolved,
 .statusBadge.resolved {
   background: #dcfce7;
   color: var(--green);
 }
 
-.statusDot.canceled,
-.statusBadge.canceled {
+.statusDot.failed,
+.statusBadge.failed {
   background: #fee2e2;
   color: var(--red);
+}
+
+.statusDot.canceled,
+.statusBadge.canceled {
+  background: #e5e7eb;
+  color: #475569;
 }
 
 .caseDetail {

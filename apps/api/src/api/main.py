@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from api import __version__
 from api.config import get_settings
 from api.db.session import dispose_async_engines
-from api.routes import cases, evals, integrations, me
+from api.routes import agent_runs, cases, evals, integrations, me
 from api.webhooks import router as webhooks_router
 from ecom_shared import HealthResponse, ServiceName
 
@@ -32,6 +32,7 @@ app.include_router(me.router)
 app.include_router(cases.router)
 app.include_router(evals.router)
 app.include_router(integrations.router)
+app.include_router(agent_runs.router)
 app.include_router(webhooks_router)
 
 

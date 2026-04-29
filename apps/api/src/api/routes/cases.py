@@ -194,14 +194,18 @@ async def submit_case_decision(
     }
     resume_result = await dispatcher.resume_case(
         thread_id=case.langgraph_thread_id,
+        merchant_id=tenant.merchant_id,
+        case_id=case_id,
         decision=decision_payload,
     )
     next_status = (
         CaseStatus.PENDING_APPROVAL.value
         if request.decision == "modify"
-        else CaseStatus.RESOLVED.value
-        if request.decision == "approve"
         else CaseStatus.CANCELED.value
+        if request.decision == "reject"
+        else CaseStatus.EXECUTING.value
+        if request.decision == "approve"
+        else CaseStatus.OPEN.value
     )
     resolution: dict[str, object] = {
         "decision": request.decision,
@@ -211,6 +215,15 @@ async def submit_case_decision(
         "modification": request.modification,
         "langgraph_run_id": resume_result.run_id,
         "submitted_to_langgraph": resume_result.submitted,
+        "execution": {
+            "status": (
+                "pending"
+                if request.decision == "approve"
+                else "skipped"
+                if request.decision == "reject"
+                else "awaiting_modification"
+            )
+        },
     }
     await repository.record_case_event(
         merchant_id=tenant.merchant_id,

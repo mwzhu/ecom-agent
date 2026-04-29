@@ -40,9 +40,8 @@ def planned_tool_call(
         "input": payload,
         "write": is_write,
         "status": "planned",
+        "idempotency_key": build_idempotency_key(case_id, intent, payload),
     }
-    if is_write:
-        call["idempotency_key"] = build_idempotency_key(case_id, intent, payload)
     return call
 
 

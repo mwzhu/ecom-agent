@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Annotated, Protocol
 from uuid import UUID
 
@@ -294,7 +295,12 @@ class SqlAlchemyTenantRepository:
         if case is None or case.merchant_id != merchant_id:
             return
         case.status = status
-        case.resolution = resolution
+        existing = dict(case.resolution) if isinstance(case.resolution, dict) else {}
+        case.resolution = _deep_merge(existing, resolution)
+        if status in {"resolved", "failed", "canceled"}:
+            case.resolved_at = datetime.now(UTC)
+        elif status in {"open", "pending_approval", "executing"}:
+            case.resolved_at = None
         await self._session.flush()
 
     async def record_eval_correction(
@@ -394,3 +400,20 @@ def get_tenant_repository(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> TenantRepository:
     return SqlAlchemyTenantRepository(session)
+
+
+def _deep_merge(
+    base: dict[str, object],
+    patch: dict[str, object],
+) -> dict[str, object]:
+    merged = dict(base)
+    for key, value in patch.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(
+                {str(inner_key): inner_value for inner_key, inner_value in current.items()},
+                {str(inner_key): inner_value for inner_key, inner_value in value.items()},
+            )
+        else:
+            merged[key] = value
+    return merged

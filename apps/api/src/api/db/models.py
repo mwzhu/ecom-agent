@@ -31,7 +31,9 @@ class Base(DeclarativeBase):
 class CaseStatus(StrEnum):
     OPEN = "open"
     PENDING_APPROVAL = "pending_approval"
+    EXECUTING = "executing"
     RESOLVED = "resolved"
+    FAILED = "failed"
     CANCELED = "canceled"
 
 
@@ -58,6 +60,13 @@ class EvalReviewStatus(StrEnum):
     QUEUED = "queued"
     REVIEWED = "reviewed"
     DISMISSED = "dismissed"
+
+
+class AgentRunExecutionStatus(StrEnum):
+    PROCESSING = "processing"
+    SYNCED = "synced"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
 
 
 class ActorType(StrEnum):
@@ -243,3 +252,34 @@ class EvalReviewItem(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default=EvalReviewStatus.QUEUED)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AgentRunExecution(Base):
+    __tablename__ = "agent_run_executions"
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_agent_run_executions_run"),
+        Index(
+            "ix_agent_run_executions_merchant_status_created",
+            "merchant_id",
+            "status",
+            "created_at",
+        ),
+        Index("ix_agent_run_executions_case_created", "case_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    case_id: Mapped[UUID] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"))
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    thread_id: Mapped[str] = mapped_column(String(255))
+    run_id: Mapped[str] = mapped_column(String(255))
+    graph_status: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), default=AgentRunExecutionStatus.PROCESSING)
+    graph_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    execution_results: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    error: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )

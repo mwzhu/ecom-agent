@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-export type CaseStatus = "open" | "pending_approval" | "resolved" | "canceled";
+export type CaseStatus = "open" | "pending_approval" | "executing" | "resolved" | "failed" | "canceled";
 
 export type CaseEvent = {
   id: string;

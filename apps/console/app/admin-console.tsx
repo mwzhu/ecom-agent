@@ -6,7 +6,9 @@ import type { AdminConsoleData, CaseDetail, CaseStatus, EvalReviewItem } from ".
 const statusLabels: Record<CaseStatus, string> = {
   open: "Open",
   pending_approval: "Needs approval",
+  executing: "Executing",
   resolved: "Resolved",
+  failed: "Failed",
   canceled: "Canceled",
 };
 
@@ -108,7 +110,9 @@ export function AdminConsole({ initialData }: { initialData: AdminConsoleData })
         return;
       }
       const payload = (await response.json()) as { status?: CaseStatus };
-      const status = payload.status ?? (decision === "reject" ? "canceled" : "resolved");
+      const status =
+        payload.status ??
+        (decision === "reject" ? "canceled" : decision === "modify" ? "pending_approval" : "executing");
       updateCaseStatus(selectedCase.id, status, { decision, actor: "internal-console", note });
       setActionState({ tone: "success", message: "Decision recorded." });
       setModifyNote("");
@@ -162,6 +166,7 @@ export function AdminConsole({ initialData }: { initialData: AdminConsoleData })
       <section className="metricBand" aria-label="Case metrics">
         <Metric label="Open" value={metrics.open} />
         <Metric label="Needs approval" value={metrics.pending_approval} />
+        <Metric label="Executing" value={metrics.executing} />
         <Metric label="Resolved" value={metrics.resolved} />
         <Metric label="Eval review" value={initialData.evalReviews.length} />
       </section>
@@ -192,7 +197,9 @@ export function AdminConsole({ initialData }: { initialData: AdminConsoleData })
             <option value="all">All</option>
             <option value="open">Open</option>
             <option value="pending_approval">Needs approval</option>
+            <option value="executing">Executing</option>
             <option value="resolved">Resolved</option>
+            <option value="failed">Failed</option>
             <option value="canceled">Canceled</option>
           </select>
         </label>
@@ -406,7 +413,7 @@ function CaseReview({
 function caseMetrics(cases: CaseDetail[]) {
   return cases.reduce(
     (counts, item) => ({ ...counts, [item.status]: counts[item.status] + 1 }),
-    { open: 0, pending_approval: 0, resolved: 0, canceled: 0 },
+    { open: 0, pending_approval: 0, executing: 0, resolved: 0, failed: 0, canceled: 0 },
   );
 }
 

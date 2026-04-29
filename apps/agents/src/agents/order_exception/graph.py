@@ -195,6 +195,20 @@ def finalize(state: OrderExceptionState) -> OrderExceptionState:
             },
         }
 
+    if decision and decision.get("decision") == "modify":
+        return {
+            **state,
+            "validation_errors": validation_errors,
+            "resolution": {
+                "status": "awaiting_modification",
+                "summary": proposed_action.get("summary"),
+                "recommendation": proposed_action.get("recommendation"),
+                "matched_fop_ids": proposed_action.get("matched_fop_ids", []),
+                "validation_errors": validation_errors,
+                "human_decision": decision,
+            },
+        }
+
     status = "approved" if proposed_action.get("requires_human") else "auto_resolved"
     call_status = "approved" if proposed_action.get("requires_human") else "auto_ready"
     return {

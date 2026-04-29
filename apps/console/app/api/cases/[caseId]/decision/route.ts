@@ -16,7 +16,12 @@ export async function POST(request: Request, context: RouteContext) {
   if (!token && fixtureMode) {
     return NextResponse.json({
       case_id: caseId,
-      status: body.decision === "reject" ? "canceled" : "resolved",
+      status:
+        body.decision === "reject"
+          ? "canceled"
+          : body.decision === "modify"
+            ? "pending_approval"
+            : "executing",
       langgraph_run_id: null,
       submitted_to_langgraph: false,
       local_only: true,

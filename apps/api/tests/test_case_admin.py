@@ -97,7 +97,7 @@ class InMemoryCaseRepository:
         resolution: dict[str, object],
     ) -> None:
         self.status = status
-        self.resolution = resolution
+        self.resolution = {**(self.resolution or {}), **resolution}
 
     async def record_eval_correction(
         self,
@@ -165,9 +165,18 @@ class InMemoryDispatcher:
         self,
         *,
         thread_id: str | None,
+        merchant_id: UUID,
+        case_id: UUID,
         decision: dict[str, object],
     ) -> ResumeResult:
-        self.decisions.append({"thread_id": thread_id, "decision": decision})
+        self.decisions.append(
+            {
+                "thread_id": thread_id,
+                "merchant_id": merchant_id,
+                "case_id": case_id,
+                "decision": decision,
+            }
+        )
         return ResumeResult(run_id="run_123", submitted=True)
 
 
@@ -188,11 +197,13 @@ def test_case_decision_records_event_and_resumes_langgraph() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json()["status"] == "resolved"
+    assert response.json()["status"] == "executing"
     assert response.json()["langgraph_run_id"] == "run_123"
     assert dispatcher.decisions[0]["thread_id"] == "thread_123"
+    assert dispatcher.decisions[0]["merchant_id"] == merchant_id
+    assert dispatcher.decisions[0]["case_id"] == case_id
     assert repository.events[0]["kind"] == "case.decision_submitted"
-    assert repository.status == "resolved"
+    assert repository.status == "executing"
 
 
 def test_case_decision_rejects_case_without_langgraph_thread() -> None:

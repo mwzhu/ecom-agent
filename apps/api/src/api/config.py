@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     shipbob_webhook_secret: str | None = None
     shipstation_webhook_secret: str | None = None
     gmail_webhook_secret: str | None = None
+    langgraph_run_webhook_secret: str | None = None
     langgraph_assistant_id: str = "order-exception"
     integration_http_timeout_seconds: float = 30.0
     app_kms_key_id: str = "local-dev-cmk"

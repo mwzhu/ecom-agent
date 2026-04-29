@@ -114,6 +114,36 @@ def test_human_resume_approves_planned_write_tool_calls() -> None:
     assert all(call["idempotency_key"] for call in resumed["tool_calls_so_far"])
 
 
+def test_human_resume_modify_keeps_case_pending_without_approving_calls() -> None:
+    local_graph = build_graph_for_local()
+    config = {"configurable": {"thread_id": "case_demo_modify"}}
+
+    local_graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_modify",
+            "exception_type": "fraud_triage",
+            "order": {"id": "gid://shopify/Order/2", "total_price": "742.00"},
+            "context": {"risk": {"score": 85}},
+        },
+        config=config,
+    )
+    resumed = local_graph.invoke(
+        Command(
+            resume={
+                "decision": "modify",
+                "source": "console",
+                "actor": "ops@example.com",
+                "modification": {"operator_note": "Cancel only after manual note review."},
+            }
+        ),
+        config=config,
+    )
+
+    assert resumed["resolution"]["status"] == "awaiting_modification"
+    assert resumed.get("tool_calls_so_far", []) == []
+
+
 def test_inventory_conflict_proposes_partial_shipment() -> None:
     result = graph.invoke(
         {
