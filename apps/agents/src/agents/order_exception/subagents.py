@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -105,11 +106,13 @@ def address_change_request_subagent(state: OrderExceptionState) -> OrderExceptio
             intent="hold_for_address_change",
             reason_notes="Customer requested a shipping address update before pick/pack.",
         ),
-        _three_pl_hold_call(
-            case_id=case_id,
-            context=context,
-            intent="sync_address_change_to_3pl",
-            reason="Customer requested an address update before shipment.",
+        *_optional_tool_call(
+            _three_pl_hold_call(
+                case_id=case_id,
+                context=context,
+                intent="sync_address_change_to_3pl",
+                reason="Customer requested an address update before shipment.",
+            )
         ),
         planned_tool_call(
             case_id=case_id,
@@ -160,7 +163,7 @@ def item_change_request_subagent(state: OrderExceptionState) -> OrderExceptionSt
             "so we can't safely change its items in place. We'll help with the best next option, "
             "such as a return, exchange, or a new order."
         )
-        tool_calls = [
+        tool_calls: list[JsonObject | None] = [
             *_draft_reply_calls(
                 case_id=case_id,
                 context=context,
@@ -458,16 +461,20 @@ def fraud_triage_subagent(state: OrderExceptionState) -> OrderExceptionState:
                 intent="hold_medium_fraud_review",
                 reason_notes=f"Fraud review required for score {score:.0f}.",
             ),
-            _search_customer_orders_call(
-                case_id=case_id,
-                intent="fetch_customer_order_history_for_fraud",
-                query=customer_query,
+            *_optional_tool_call(
+                _search_customer_orders_call(
+                    case_id=case_id,
+                    intent="fetch_customer_order_history_for_fraud",
+                    query=customer_query,
+                )
             ),
-            _search_gorgias_customer_call(
-                case_id=case_id,
-                order=order,
-                context=context,
-                intent="fetch_customer_support_history_for_fraud",
+            *_optional_tool_call(
+                _search_gorgias_customer_call(
+                    case_id=case_id,
+                    order=order,
+                    context=context,
+                    intent="fetch_customer_support_history_for_fraud",
+                )
             ),
             _order_note_call(
                 case_id=case_id,
@@ -1348,8 +1355,12 @@ def _days_since_last_scan(context: JsonObject) -> float | None:
     return max(0.0, (reference_at - last_scan_at).total_seconds() / 86400)
 
 
-def _compact_tool_calls(tool_calls: list[JsonObject | None]) -> list[JsonObject]:
+def _compact_tool_calls(tool_calls: Iterable[JsonObject | None]) -> list[JsonObject]:
     return [call for call in tool_calls if isinstance(call, dict)]
+
+
+def _optional_tool_call(tool_call: JsonObject | None) -> list[JsonObject]:
+    return [tool_call] if tool_call is not None else []
 
 
 def _nested(value: object, path: list[str], default: object = None) -> object:

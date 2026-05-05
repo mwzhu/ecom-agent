@@ -143,6 +143,7 @@ async def _receive_webhook(
         headers=headers,
         payload=payload,
         repository=repository,
+        settings=settings,
     )
     case_seed = build_webhook_case_seed(
         provider,
@@ -238,8 +239,11 @@ async def _resolve_merchant_id(
     headers: dict[str, str],
     payload: dict[str, Any],
     repository: IntegrationRepository,
+    settings: Settings,
 ) -> UUID:
     external_account_id = webhook_external_account_id(provider, headers=headers, payload=payload)
+    if external_account_id is None and provider is IntegrationProvider.STRIPE:
+        external_account_id = settings.stripe_account_id
     if external_account_id is not None:
         merchant_id = await repository.resolve_webhook_merchant(
             provider=provider,

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     clerk_dev_jwt_secret: str | None = None
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
+    stripe_account_id: str | None = None
     shopify_client_id: str | None = None
     shopify_client_secret: str | None = None
     shopify_admin_api_version: str = "2025-10"
@@ -40,6 +41,9 @@ class Settings(BaseSettings):
     shopify_webhook_secret: str | None = None
     gorgias_client_id: str | None = None
     gorgias_client_secret: str | None = None
+    gorgias_oauth_scopes: str = (
+        "openid email profile offline tickets:read tickets:write customers:read integrations:read"
+    )
     gorgias_webhook_secret: str | None = None
     shipbob_webhook_secret: str | None = None
     shipstation_webhook_secret: str | None = None

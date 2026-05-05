@@ -437,6 +437,8 @@ async def _invoke_tool_call(
     case_id: UUID,
 ) -> ToolExecutionResult:
     tool_name = _value(tool_call, "tool")
+    if tool_name is None:
+        raise ValueError("Executable tool call is missing a tool name.")
     handler = EXECUTION_TOOL_REGISTRY[tool_name]
     args: JsonObject = {
         **_object_dict(tool_call.get("input")),

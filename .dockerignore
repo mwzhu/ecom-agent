@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.git
+.github
+.mypy_cache
+.next
+.pytest_cache
+.ruff_cache
+.venv
+node_modules
+apps/console/.next
+apps/console/node_modules
+**/__pycache__
+**/*.pyc

@@ -1,17 +1,19 @@
 :root {
-  --background: #f4f6f8;
-  --foreground: #111827;
-  --muted: #64748b;
-  --line: #d7dde5;
+  --background: #f6f7f9;
+  --foreground: #172033;
+  --muted: #667085;
+  --line: #d9dee7;
   --panel: #ffffff;
   --panel-soft: #f8fafc;
-  --ink: #0f172a;
-  --teal: #0f766e;
-  --teal-dark: #115e59;
+  --ink: #111827;
   --blue: #2563eb;
+  --blue-soft: #dbeafe;
   --amber: #b45309;
+  --amber-soft: #fef3c7;
   --red: #b91c1c;
+  --red-soft: #fee2e2;
   --green: #15803d;
+  --green-soft: #dcfce7;
 }
 
 * {
@@ -32,14 +34,12 @@ body {
 }
 
 button,
-a,
-select,
+input,
 textarea {
   font: inherit;
 }
 
 button,
-select,
 textarea {
   border: 1px solid var(--line);
 }
@@ -60,205 +60,160 @@ p {
   margin: 0;
 }
 
-.adminShell {
+h1 {
+  color: var(--ink);
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+h2 {
+  color: var(--ink);
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+h3 {
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.consoleShell {
   display: grid;
   gap: 18px;
   min-height: 100vh;
   padding: 24px;
 }
 
-.topbar,
-.topbarActions,
-.controlStrip,
-.detailHeader,
-.sectionTitle,
-.buttonRow {
+.appHeader,
+.headerActions,
+.statusStrip,
+.queueHeader,
+.caseHeader,
+.buttonRow,
+.toggleLabel,
+.compactItem {
   align-items: center;
   display: flex;
-  gap: 14px;
+  gap: 12px;
 }
 
-.topbar {
-  border-bottom: 1px solid var(--line);
+.appHeader {
   justify-content: space-between;
-  padding-bottom: 20px;
 }
 
-.topbarActions {
-  justify-content: flex-end;
+.headerCopy,
+.queueHeader p,
+.caseHeader p,
+.statusStrip,
+.caseListItem small,
+.caseListItem em,
+.detailBlock p,
+.compactItem span,
+.emptyState p {
+  color: var(--muted);
 }
 
 .eyebrow {
-  color: var(--teal-dark);
+  color: var(--blue);
   font-size: 0.74rem;
-  font-weight: 800;
+  font-weight: 850;
   letter-spacing: 0;
   margin-bottom: 6px;
   text-transform: uppercase;
 }
 
-h1 {
-  color: var(--ink);
-  font-size: clamp(2rem, 5vw, 4.6rem);
-  line-height: 0.95;
+.headerCopy {
+  margin-top: 8px;
+  max-width: 660px;
 }
 
-h2 {
-  color: var(--ink);
-  font-size: clamp(1.45rem, 3vw, 2.45rem);
-  line-height: 1;
+.headerActions {
+  justify-content: flex-end;
 }
 
-h3 {
-  color: var(--ink);
-  font-size: 1.15rem;
-  line-height: 1.2;
-}
-
-.iconButton,
-.buttonRow button,
-.decisionPanel > button,
-.correctionPanel button {
-  align-items: center;
-  background: var(--ink);
-  border-color: var(--ink);
-  border-radius: 8px;
-  color: #ffffff;
-  display: inline-flex;
-  font-weight: 800;
-  justify-content: center;
-  min-height: 42px;
-  padding: 0 15px;
-  text-decoration: none;
-}
-
-.iconButton:hover,
-.buttonRow button:hover,
-.decisionPanel > button:hover,
-.correctionPanel button:hover {
-  background: var(--teal-dark);
-  border-color: var(--teal-dark);
-}
-
-.textButton {
-  white-space: nowrap;
-}
-
-.sourcePill,
-.statusBadge {
-  border-radius: 8px;
+.modePill,
+.riskPill,
+.statusStrip span {
+  border-radius: 999px;
   font-size: 0.78rem;
-  font-weight: 900;
-  padding: 9px 11px;
-  text-transform: uppercase;
+  font-weight: 850;
+  padding: 8px 10px;
 }
 
-.sourcePill.api {
-  background: #dcfce7;
-  color: var(--green);
-}
-
-.sourcePill.fixture {
-  background: #eff6ff;
+.modePill.fixture {
+  background: var(--blue-soft);
   color: var(--blue);
 }
 
-.metricBand {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+.modePill.api {
+  background: var(--green-soft);
+  color: var(--green);
 }
 
-.metric,
-.caseQueue,
-.caseDetail,
-.decisionPanel,
-.tracePanel,
-.timelineItem,
-.correctionPanel,
-.evalReviewPanel,
-.fopPanel,
-.emptyState {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.metric {
-  display: grid;
-  gap: 10px;
-  min-height: 104px;
-  padding: 16px;
-}
-
-.metric span {
+.toggleLabel {
   color: var(--muted);
   font-size: 0.86rem;
-  font-weight: 800;
+  font-weight: 750;
 }
 
-.metric strong {
-  color: var(--ink);
-  font-size: 2rem;
-  line-height: 1;
+.toggleLabel input {
+  accent-color: var(--blue);
 }
 
-.controlStrip {
-  justify-content: space-between;
-}
-
-.segmented {
-  background: #e9eef5;
+.statusStrip {
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  display: flex;
-  gap: 4px;
-  padding: 4px;
+  flex-wrap: wrap;
+  padding: 12px;
 }
 
-.segmented button {
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  color: var(--muted);
-  font-weight: 800;
-  min-height: 36px;
-  padding: 0 12px;
+.statusStrip span {
+  background: var(--panel-soft);
 }
 
-.segmented button.active {
-  background: var(--panel);
-  color: var(--ink);
-}
-
-.selectLabel,
-.fieldLabel {
-  color: var(--muted);
-  display: grid;
-  font-size: 0.82rem;
-  font-weight: 800;
-  gap: 8px;
-}
-
-select {
-  background: var(--panel);
-  border-radius: 8px;
-  color: var(--ink);
-  min-height: 42px;
-  padding: 0 12px;
-}
-
-.workspace {
+.reviewLayout {
   align-items: start;
   display: grid;
-  gap: 16px;
+  gap: 18px;
   grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
 }
 
-.caseQueue {
+.queuePanel,
+.reviewPanel,
+.simpleCard,
+.answerCard,
+.decisionCard,
+.moreDetails,
+.emptyState,
+.errorBanner {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.errorBanner {
+  background: #fff7ed;
+  border-color: #fed7aa;
   display: grid;
-  gap: 12px;
-  max-height: calc(100vh - 248px);
+  gap: 6px;
+  padding: 12px;
+}
+
+.errorBanner strong {
+  color: var(--ink);
+}
+
+.errorBanner span {
+  color: #9a3412;
+  overflow-wrap: anywhere;
+}
+
+.queuePanel {
+  display: grid;
+  gap: 14px;
+  max-height: calc(100vh - 170px);
   overflow: auto;
   padding: 16px;
   position: sticky;
@@ -266,59 +221,54 @@ select {
 }
 
 .queueHeader {
-  align-items: center;
-  display: flex;
   justify-content: space-between;
+}
+
+.textButton {
+  background: transparent;
+  border: 0;
+  color: var(--blue);
+  font-weight: 850;
+  padding: 8px 0;
 }
 
 .caseList {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
-.caseRow {
+.caseListItem {
   align-items: center;
   background: var(--panel-soft);
   border-radius: 8px;
-  color: var(--foreground);
+  color: inherit;
   display: grid;
   gap: 10px;
   grid-template-columns: 10px minmax(0, 1fr) auto;
-  min-height: 78px;
+  min-height: 70px;
   padding: 12px;
   text-align: left;
 }
 
-.caseRow.active {
-  background: #ecfeff;
-  border-color: var(--teal);
+.caseListItem.active {
+  background: #eff6ff;
+  border-color: var(--blue);
 }
 
-.caseRow span:not(.statusDot) {
+.caseListItem span:not(.statusDot) {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
 }
 
-.caseRow small,
-.caseRow em,
-.subjectLine,
-.decisionPanel p,
-.tracePlaceholder span,
-.timelineItem span,
-.timelineItem time,
-.mutedText {
-  color: var(--muted);
-}
-
-.caseRow strong,
-.caseRow small {
+.caseListItem strong,
+.caseListItem small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.caseRow em {
+.caseListItem em {
   font-size: 0.78rem;
   font-style: normal;
   font-weight: 800;
@@ -331,80 +281,174 @@ select {
 }
 
 .statusDot.open,
-.statusBadge.open {
-  background: #dbeafe;
-  color: var(--blue);
+.statusDot.executing {
+  background: var(--blue);
 }
 
-.statusDot.pending_approval,
-.statusBadge.pending_approval {
-  background: #fef3c7;
-  color: var(--amber);
+.statusDot.pending_approval {
+  background: var(--amber);
 }
 
-.statusDot.executing,
-.statusBadge.executing {
-  background: #e0f2fe;
-  color: var(--blue);
+.statusDot.resolved {
+  background: var(--green);
 }
 
-.statusDot.resolved,
-.statusBadge.resolved {
-  background: #dcfce7;
+.statusDot.failed {
+  background: var(--red);
+}
+
+.statusDot.canceled {
+  background: var(--muted);
+}
+
+.reviewPanel {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.caseHeader {
+  border-bottom: 1px solid var(--line);
+  justify-content: space-between;
+  padding-bottom: 16px;
+}
+
+.riskPill.low {
+  background: var(--green-soft);
   color: var(--green);
 }
 
-.statusDot.failed,
-.statusBadge.failed {
-  background: #fee2e2;
+.riskPill.medium {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.riskPill.high {
+  background: var(--red-soft);
   color: var(--red);
 }
 
-.statusDot.canceled,
-.statusBadge.canceled {
-  background: #e5e7eb;
-  color: #475569;
-}
-
-.caseDetail {
+.answerGrid {
   display: grid;
-  gap: 16px;
-  padding: 16px;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.detailHeader {
-  justify-content: space-between;
-}
-
-.reviewGrid,
-.lowerGrid {
+.answerCard {
   display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 8px;
+  padding: 14px;
 }
 
-.decisionPanel,
-.tracePanel,
-.correctionPanel,
-.evalReviewPanel,
-.fopPanel {
+.answerCard span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.answerCard strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.simpleCard,
+.decisionCard,
+.moreDetails {
   display: grid;
-  gap: 14px;
-  padding: 16px;
+  gap: 12px;
+  padding: 14px;
+}
+
+.factsList {
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: minmax(130px, 0.35fr) minmax(0, 1fr);
+  margin: 0;
+}
+
+.factsList dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.factsList dd {
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 750;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.policyNote {
+  background: #f8fbff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.policyNote strong {
+  color: var(--ink);
+}
+
+.policyNote span {
+  color: var(--foreground);
+  line-height: 1.45;
+}
+
+textarea {
+  background: var(--panel-soft);
+  border-radius: 8px;
+  color: var(--ink);
+  line-height: 1.45;
+  min-height: 84px;
+  padding: 12px;
+  resize: vertical;
+  width: 100%;
+}
+
+.messageBox {
+  min-height: 120px;
+}
+
+.decisionCard label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.84rem;
+  font-weight: 800;
+  gap: 8px;
 }
 
 .buttonRow {
   flex-wrap: wrap;
 }
 
-.fieldLabel textarea {
-  background: var(--panel-soft);
+.buttonRow button,
+.detailBlock button {
+  align-items: center;
+  background: var(--ink);
+  border-color: var(--ink);
   border-radius: 8px;
-  color: var(--ink);
-  min-height: 104px;
-  padding: 12px;
-  resize: vertical;
-  width: 100%;
+  color: #ffffff;
+  display: inline-flex;
+  font-weight: 850;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+}
+
+.buttonRow button:hover,
+.detailBlock button:hover {
+  background: var(--blue);
+  border-color: var(--blue);
+}
+
+.buttonRow .dangerButton {
+  background: var(--red);
+  border-color: var(--red);
 }
 
 .actionMessage {
@@ -414,26 +458,34 @@ select {
 }
 
 .actionMessage.idle {
-  background: #eff6ff;
+  background: var(--blue-soft);
   color: var(--blue);
 }
 
 .actionMessage.success {
-  background: #dcfce7;
+  background: var(--green-soft);
   color: var(--green);
 }
 
 .actionMessage.error {
-  background: #fee2e2;
+  background: var(--red-soft);
   color: var(--red);
 }
 
-.evalReviewList {
-  display: grid;
-  gap: 12px;
+.moreDetails summary {
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 850;
 }
 
-.evalReviewItem {
+.detailsGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.detailBlock {
   background: var(--panel-soft);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -442,150 +494,68 @@ select {
   padding: 12px;
 }
 
-.evalReviewItem div {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-}
-
-.evalReviewItem strong {
-  color: var(--ink);
-  font-size: 1.25rem;
-}
-
-.evalReviewItem span {
-  color: var(--amber);
-  font-size: 0.78rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.evalReviewItem p {
-  color: var(--foreground);
-  line-height: 1.45;
-}
-
-.tracePanel iframe,
-.tracePlaceholder {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  min-height: 260px;
-  width: 100%;
-}
-
-.tracePanel iframe {
-  background: var(--panel-soft);
-}
-
-.tracePlaceholder {
-  align-content: center;
-  background: var(--panel-soft);
+.compactList {
   display: grid;
   gap: 8px;
-  justify-items: center;
-  padding: 20px;
-  text-align: center;
 }
 
-.timelineSection {
-  display: grid;
-  gap: 12px;
-}
-
-.sectionTitle {
+.compactItem {
   justify-content: space-between;
 }
 
-.timeline {
-  display: grid;
-  gap: 10px;
-}
-
-.timelineItem {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-}
-
-.timelineItem div {
-  align-items: center;
-  display: flex;
-  gap: 10px;
-  justify-content: space-between;
-}
-
-pre {
-  background: #0f172a;
-  border-radius: 8px;
-  color: #e5e7eb;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.78rem;
-  line-height: 1.55;
-  margin: 0;
-  max-height: 360px;
-  overflow: auto;
-  padding: 14px;
-  white-space: pre-wrap;
+.compactItem strong,
+.compactItem span {
+  font-size: 0.86rem;
 }
 
 .emptyState {
-  min-height: 280px;
-  padding: 24px;
+  display: grid;
+  gap: 8px;
+  min-height: 180px;
+  padding: 18px;
+  place-content: center;
+  text-align: center;
 }
 
-@media (max-width: 1100px) {
-  .workspace,
-  .reviewGrid,
-  .lowerGrid {
+@media (max-width: 1050px) {
+  .reviewLayout,
+  .answerGrid,
+  .detailsGrid {
     grid-template-columns: 1fr;
   }
 
-  .caseQueue {
+  .queuePanel {
     max-height: none;
     position: static;
   }
 }
 
-@media (max-width: 760px) {
-  .adminShell {
+@media (max-width: 720px) {
+  .consoleShell {
     padding: 16px;
   }
 
-  .topbar,
-  .topbarActions,
-  .controlStrip,
-  .detailHeader {
+  .appHeader,
+  .headerActions,
+  .caseHeader {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .metricBand {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .segmented {
-    overflow-x: auto;
-  }
-
-  .caseRow {
+  .caseListItem {
     grid-template-columns: 10px minmax(0, 1fr);
   }
 
-  .caseRow em {
+  .caseListItem em {
     grid-column: 2;
   }
-}
 
-@media (max-width: 520px) {
-  .metricBand {
+  .factsList {
     grid-template-columns: 1fr;
   }
 
-  .iconButton,
   .buttonRow button,
-  .decisionPanel > button,
-  .correctionPanel button {
+  .detailBlock button {
     width: 100%;
   }
 }

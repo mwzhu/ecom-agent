@@ -196,7 +196,12 @@ async def gorgias_draft_reply(
 def _account_domain(account_domain: str | None, credential: ProviderCredential) -> str:
     if account_domain:
         return account_domain
-    return require_metadata_string(credential, "account_domain")
+    fallback = credential.metadata.get("gorgias_domain")
+    return require_metadata_string(
+        credential,
+        "account_domain",
+        fallback if isinstance(fallback, str) and fallback else None,
+    )
 
 
 def _normalize_account_domain(account_domain: str) -> str:

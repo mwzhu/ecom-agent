@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID, uuid4
@@ -273,6 +274,52 @@ def test_shopify_webhook_rejects_unmapped_source_even_with_merchant_header() -> 
     assert dispatcher.runs == []
 
 
+def test_stripe_webhook_uses_configured_account_id_when_event_has_no_account() -> None:
+    secret = "whsec_test"
+    merchant_id = uuid4()
+    repository = InMemoryWebhookRepository(
+        webhook_sources={(IntegrationProvider.STRIPE, "acct_123"): merchant_id}
+    )
+    dispatcher = InMemoryDispatcher()
+    client = _client(
+        repository,
+        dispatcher,
+        Settings(stripe_webhook_secret=secret, stripe_account_id="acct_123"),
+    )
+    body = json.dumps(
+        {
+            "id": "evt_stripe_1",
+            "type": "charge.dispute.created",
+            "data": {
+                "object": {
+                    "id": "dp_123",
+                    "charge": "ch_123",
+                    "payment_intent": "pi_123",
+                }
+            },
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    try:
+        response = client.post(
+            "/v1/webhooks/stripe",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "stripe-signature": _stripe_signature(secret, body),
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "accepted"
+    assert repository.scopes == [merchant_id]
+    assert repository.cases[0]["merchant_id"] == merchant_id
+    assert len(dispatcher.runs) == 1
+
+
 def _client(
     repository: InMemoryWebhookRepository,
     dispatcher: InMemoryDispatcher,
@@ -287,3 +334,10 @@ def _client(
 def _shopify_signature(secret: str, body: bytes) -> str:
     digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
     return base64.b64encode(digest).decode("utf-8")
+
+
+def _stripe_signature(secret: str, body: bytes) -> str:
+    timestamp = int(time.time())
+    signed_payload = f"{timestamp}.".encode() + body
+    digest = hmac.new(secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+    return f"t={timestamp},v1={digest}"

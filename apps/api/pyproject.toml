@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "FastAPI surface for webhooks, REST APIs, and console integration."
 requires-python = ">=3.12"
 dependencies = [
+  "alembic>=1.17.2",
   "asyncpg>=0.31.0",
   "cryptography>=46.0.7",
   "ecom-shared-schemas",
@@ -11,6 +12,7 @@ dependencies = [
   "httpx>=0.28.1",
   "langchain-core>=1.2.0",
   "langgraph-sdk>=0.3.0",
+  "psycopg[binary]>=3.2.14",
   "pyjwt[crypto]>=2.12.1",
   "pydantic-settings>=2.12.0",
   "sqlalchemy[asyncio]>=2.0.45",

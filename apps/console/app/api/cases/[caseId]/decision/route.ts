@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
+import { getConsoleApiAuth } from "../../../../../lib/console-auth";
+import { serverEnv } from "../../../../../lib/server-env";
 
 const API_BASE_URL =
-  process.env.INTERNAL_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  serverEnv("INTERNAL_API_BASE_URL") ?? serverEnv("NEXT_PUBLIC_API_BASE_URL") ?? "http://localhost:8000";
 
 type RouteContext = {
   params: Promise<{ caseId: string }>;
 };
 
 export async function POST(request: Request, context: RouteContext) {
-  const token = process.env.INTERNAL_CONSOLE_BEARER_TOKEN;
+  const auth = await getConsoleApiAuth();
   const { caseId } = await context.params;
   const body = (await request.json()) as Record<string, unknown>;
   const fixtureMode = request.headers.get("x-console-fixture-mode") === "true";
 
-  if (!token && fixtureMode) {
+  if (auth.token === null && fixtureMode) {
     return NextResponse.json({
       case_id: caseId,
       status:
@@ -27,17 +29,14 @@ export async function POST(request: Request, context: RouteContext) {
       local_only: true,
     });
   }
-  if (!token) {
-    return NextResponse.json(
-      { detail: "INTERNAL_CONSOLE_BEARER_TOKEN is required outside fixture mode." },
-      { status: 503 },
-    );
+  if (auth.token === null) {
+    return NextResponse.json({ detail: auth.detail }, { status: auth.status });
   }
 
   const response = await fetch(`${API_BASE_URL}/v1/cases/${caseId}/decision`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${auth.token}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

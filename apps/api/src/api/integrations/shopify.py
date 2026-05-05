@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from langchain_core.tools import tool
@@ -453,7 +453,7 @@ class ShopifyClient:
             )
             set_quantity_result = ensure_object(
                 IntegrationProvider.SHOPIFY,
-                _nested(response, ["data", "orderEditSetQuantity"], {}),
+                cast(JsonValue, _nested(response, ["data", "orderEditSetQuantity"], {})),
             )
             _raise_user_errors(
                 IntegrationProvider.SHOPIFY,
@@ -504,7 +504,7 @@ class ShopifyClient:
             )
             add_variant_result = ensure_object(
                 IntegrationProvider.SHOPIFY,
-                _nested(response, ["data", "orderEditAddVariant"], {}),
+                cast(JsonValue, _nested(response, ["data", "orderEditAddVariant"], {})),
             )
             _raise_user_errors(
                 IntegrationProvider.SHOPIFY,
@@ -534,7 +534,7 @@ class ShopifyClient:
         )
         commit_result = ensure_object(
             IntegrationProvider.SHOPIFY,
-            _nested(commit, ["data", "orderEditCommit"], {}),
+            cast(JsonValue, _nested(commit, ["data", "orderEditCommit"], {})),
         )
         _raise_user_errors(
             IntegrationProvider.SHOPIFY,
@@ -907,7 +907,7 @@ def _mutation_payload(
     message: str,
     error_fields: tuple[str, ...] = ("userErrors",),
 ) -> JsonObject:
-    payload = ensure_object(provider, _nested(response, ["data", root_field], {}))
+    payload = ensure_object(provider, cast(JsonValue, _nested(response, ["data", root_field], {})))
     for field_name in error_fields:
         _raise_user_errors(provider, payload.get(field_name), message=message)
     return payload
