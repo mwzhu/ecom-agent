@@ -220,11 +220,56 @@ def test_address_change_request_updates_shipping_address_before_shipment() -> No
 
     assert result["route"] == "address_change_request"
     assert result["proposed_action"]["matched_fop_ids"] == ["fop_address_change_pre_ship"]
-    assert [call["tool"] for call in result["proposed_action"]["tool_calls"][:3]] == [
+    assert [call["tool"] for call in result["proposed_action"]["tool_calls"][:4]] == [
         "shopify_hold_fulfillment_order",
         "shopify_update_shipping_address",
+        "shopify_release_fulfillment_hold",
         "shopify_update_order_note",
     ]
+
+
+def test_extracted_address_change_does_not_ask_for_clarification() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_1036_address_change",
+            "exception_type": "address_change_request",
+            "order": {
+                "id": "gid://shopify/Order/1036",
+                "name": "#1036",
+                "fulfillment_orders": [{"id": "gid://shopify/FulfillmentOrder/1036"}],
+            },
+            "context": {
+                "customer_request": {
+                    "type": "address_change_request",
+                    "order_reference": "#1036",
+                    "is_complete": True,
+                    "needs_clarification": False,
+                    "confidence": 0.91,
+                    "evidence": [
+                        "Customer asked to change the shipping address.",
+                        "Message contains street, city, state, and ZIP.",
+                    ],
+                    "requested_address": {
+                        "address1": "515 Valencia St",
+                        "address2": None,
+                        "city": "San Francisco",
+                        "province": "CA",
+                        "zip": "94110",
+                        "country": "US",
+                    },
+                },
+                "ticket": {"id": 1036},
+            },
+        }
+    )
+
+    tool_calls = result["proposed_action"]["tool_calls"]
+    planned_tools = [call["tool"] for call in tool_calls]
+    assert planned_tools.index("shopify_release_fulfillment_hold") > planned_tools.index(
+        "shopify_update_shipping_address"
+    )
+    assert not any(call["intent"] == "draft_address_change_clarification" for call in tool_calls)
 
 
 def test_item_change_does_not_plan_hold_with_placeholder_fulfillment_order() -> None:

@@ -72,6 +72,13 @@ class ShopifyHoldFulfillmentOrderRequest(WriteToolRequest):
     reason_notes: str = Field(min_length=1)
 
 
+class ShopifyReleaseFulfillmentHoldRequest(WriteToolRequest):
+    shop_domain: str | None = Field(default=None, description="Shopify shop domain.")
+    fulfillment_order_id: str = Field(description="Shopify GraphQL FulfillmentOrder gid.")
+    hold_ids: list[str] = Field(default_factory=list)
+    external_id: str | None = None
+
+
 class ShopifyApplyOrderEditRequest(WriteToolRequest):
     shop_domain: str | None = Field(default=None, description="Shopify shop domain.")
     order_id: str = Field(description="Shopify GraphQL Order gid.")
@@ -390,6 +397,7 @@ class ShopifyClient:
             mutation EcomAgentFulfillmentHold($fulfillmentHold: FulfillmentOrderHoldInput!,
                                              $id: ID!) {
               fulfillmentOrderHold(fulfillmentHold: $fulfillmentHold, id: $id) {
+                fulfillmentHold { id }
                 fulfillmentOrder { id status requestStatus }
                 userErrors { field message }
               }
@@ -405,6 +413,44 @@ class ShopifyClient:
             "fulfillmentOrderHold",
             provider=IntegrationProvider.SHOPIFY,
             message="Shopify fulfillmentOrderHold returned user errors.",
+        )
+        return response
+
+    async def release_fulfillment_hold(
+        self,
+        *,
+        fulfillment_order_id: str,
+        hold_ids: list[str] | None = None,
+        external_id: str | None = None,
+    ) -> JsonObject:
+        response = await self.graphql(
+            """
+            mutation EcomAgentFulfillmentReleaseHold(
+              $id: ID!,
+              $holdIds: [ID!],
+              $externalId: String
+            ) {
+              fulfillmentOrderReleaseHold(
+                id: $id,
+                holdIds: $holdIds,
+                externalId: $externalId
+              ) {
+                fulfillmentOrder { id status requestStatus }
+                userErrors { field message }
+              }
+            }
+            """,
+            {
+                "id": fulfillment_order_id,
+                "holdIds": hold_ids or None,
+                "externalId": external_id,
+            },
+        )
+        _mutation_payload(
+            response,
+            "fulfillmentOrderReleaseHold",
+            provider=IntegrationProvider.SHOPIFY,
+            message="Shopify fulfillmentOrderReleaseHold returned user errors.",
         )
         return response
 
@@ -842,6 +888,45 @@ async def shopify_hold_fulfillment_order(
     return await run_tool_with_session(
         provider=IntegrationProvider.SHOPIFY,
         tool_name="shopify_hold_fulfillment_order",
+        request=request,
+        operation=operation,
+        write=True,
+    )
+
+
+@tool("shopify_release_fulfillment_hold", args_schema=ShopifyReleaseFulfillmentHoldRequest)
+async def shopify_release_fulfillment_hold(
+    merchant_id: UUID,
+    case_id: UUID,
+    idempotency_key: str,
+    fulfillment_order_id: str,
+    hold_ids: list[str] | None = None,
+    external_id: str | None = None,
+    shop_domain: str | None = None,
+) -> JsonObject:
+    """Release a temporary hold on a Shopify fulfillment order."""
+
+    request = ShopifyReleaseFulfillmentHoldRequest(
+        merchant_id=merchant_id,
+        case_id=case_id,
+        idempotency_key=idempotency_key,
+        shop_domain=shop_domain,
+        fulfillment_order_id=fulfillment_order_id,
+        hold_ids=hold_ids or [],
+        external_id=external_id,
+    )
+
+    async def operation(credential: ProviderCredential) -> JsonValue:
+        client = ShopifyClient(credential.access_token, _shop_domain(request, credential))
+        return await client.release_fulfillment_hold(
+            fulfillment_order_id=fulfillment_order_id,
+            hold_ids=hold_ids,
+            external_id=external_id,
+        )
+
+    return await run_tool_with_session(
+        provider=IntegrationProvider.SHOPIFY,
+        tool_name="shopify_release_fulfillment_hold",
         request=request,
         operation=operation,
         write=True,

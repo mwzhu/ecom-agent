@@ -73,6 +73,11 @@ TOOL_SCOPE_REQUIREMENTS: dict[str, ToolScopeRequirement] = {
         frozenset({"read_orders", "read_fulfillments", "write_fulfillments"}),
         write=True,
     ),
+    "shopify_release_fulfillment_hold": ToolScopeRequirement(
+        IntegrationProvider.SHOPIFY,
+        frozenset({"read_orders", "read_fulfillments", "write_fulfillments"}),
+        write=True,
+    ),
     "stripe_get_charge": ToolScopeRequirement(
         IntegrationProvider.STRIPE,
         frozenset({"charges:read"}),

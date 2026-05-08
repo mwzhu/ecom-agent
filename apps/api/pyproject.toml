@@ -11,6 +11,7 @@ dependencies = [
   "fastapi[standard]>=0.124.0",
   "httpx>=0.28.1",
   "langchain-core>=1.2.0",
+  "langchain-anthropic>=0.3.23",
   "langgraph-sdk>=0.3.0",
   "psycopg[binary]>=3.2.14",
   "pyjwt[crypto]>=2.12.1",

@@ -112,10 +112,9 @@ class GorgiasClient:
             if not isinstance(item, dict):
                 continue
             customer = item.get("customer")
+            customer_email_value = customer.get("email") if isinstance(customer, dict) else None
             ticket_email = (
-                customer.get("email")
-                if isinstance(customer, dict) and isinstance(customer.get("email"), str)
-                else ""
+                customer_email_value if isinstance(customer_email_value, str) else ""
             ).strip().lower()
             subject = str(item.get("subject") or "").lower()
             excerpt = str(item.get("excerpt") or "").lower()
@@ -156,7 +155,6 @@ class GorgiasClient:
                 }
             ],
             "meta": {"external_id": external_id, "generated_by": "flowlabs_real_demo"},
-            "tags": [{"name": tag} for tag in tags or []],
             "channel": "email",
             "external_id": external_id,
             "from_agent": False,
@@ -164,6 +162,8 @@ class GorgiasClient:
             "subject": subject,
             "via": "api",
         }
+        if tags:
+            payload["tags"] = [{"name": tag} for tag in tags]
         return ensure_object(
             IntegrationProvider.GORGIAS,
             await self._http.request_json("POST", "/tickets", json_body=payload),
@@ -451,8 +451,9 @@ def _reply_source(
 
 def _ticket_customer_email(ticket: JsonObject) -> str | None:
     customer = ticket.get("customer") or ticket.get("requester")
-    if isinstance(customer, dict) and isinstance(customer.get("email"), str):
-        return customer["email"]
+    email = customer.get("email") if isinstance(customer, dict) else None
+    if isinstance(email, str):
+        return email
     return None
 
 
@@ -470,8 +471,9 @@ def _last_inbound_recipient_address(ticket: JsonObject) -> str | None:
         if not isinstance(recipients, list):
             continue
         for recipient in recipients:
-            if isinstance(recipient, dict) and isinstance(recipient.get("address"), str):
-                return recipient["address"]
+            address = recipient.get("address") if isinstance(recipient, dict) else None
+            if isinstance(address, str):
+                return address
     return None
 
 
@@ -483,8 +485,9 @@ def _ticket_receiver_address(ticket: JsonObject) -> str | None:
         if not isinstance(message, dict):
             continue
         receiver = message.get("receiver")
-        if isinstance(receiver, dict) and isinstance(receiver.get("email"), str):
-            return receiver["email"]
+        email = receiver.get("email") if isinstance(receiver, dict) else None
+        if isinstance(email, str):
+            return email
     return None
 
 

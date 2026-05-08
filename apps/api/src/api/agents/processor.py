@@ -42,6 +42,7 @@ from api.integrations.shopify import (
     shopify_cancel_order,
     shopify_create_refund,
     shopify_hold_fulfillment_order,
+    shopify_release_fulfillment_hold,
     shopify_search_orders,
     shopify_update_order_note,
     shopify_update_shipping_address,
@@ -70,6 +71,7 @@ EXECUTION_TOOL_REGISTRY: dict[str, ToolRegistryEntry] = {
     "shopify_cancel_order": shopify_cancel_order,
     "shopify_create_refund": shopify_create_refund,
     "shopify_hold_fulfillment_order": shopify_hold_fulfillment_order,
+    "shopify_release_fulfillment_hold": shopify_release_fulfillment_hold,
     "shopify_search_orders": shopify_search_orders,
     "shopify_update_order_note": shopify_update_order_note,
     "shopify_update_shipping_address": shopify_update_shipping_address,
@@ -472,10 +474,15 @@ async def _execute_tool_plan(
         )
 
     results: list[ToolExecutionResult] = []
+    held_ids_by_fulfillment_order: dict[str, list[str]] = {}
     for call in tool_calls:
         try:
+            executable_call = _prepare_tool_call_for_execution(
+                call,
+                held_ids_by_fulfillment_order=held_ids_by_fulfillment_order,
+            )
             result = await _invoke_tool_call(
-                tool_call=call,
+                tool_call=executable_call,
                 merchant_id=merchant_id,
                 case_id=case_id,
             )
@@ -496,6 +503,11 @@ async def _execute_tool_plan(
                 },
             )
         results.append(result)
+        _record_hold_id(
+            executable_call,
+            result,
+            held_ids_by_fulfillment_order=held_ids_by_fulfillment_order,
+        )
         if result.status == ToolResultStatus.FAILED:
             partial = len(results) > 1
             return ExecutionBatchResult(
@@ -523,6 +535,69 @@ async def _execute_tool_plan(
         case_status=CaseStatus.RESOLVED.value,
         results=results,
     )
+
+
+def _prepare_tool_call_for_execution(
+    tool_call: JsonObject,
+    *,
+    held_ids_by_fulfillment_order: dict[str, list[str]],
+) -> JsonObject:
+    if tool_call.get("tool") != "shopify_release_fulfillment_hold":
+        return tool_call
+
+    payload = _object_dict(tool_call.get("input"))
+    fulfillment_order_id = _value(payload, "fulfillment_order_id")
+    if not fulfillment_order_id:
+        return tool_call
+    hold_ids = payload.get("hold_ids")
+    if isinstance(hold_ids, list) and hold_ids:
+        return tool_call
+    discovered_hold_ids = held_ids_by_fulfillment_order.get(fulfillment_order_id)
+    if not discovered_hold_ids:
+        raise ValueError(
+            "Cannot release Shopify fulfillment hold without the hold id created earlier in the approved tool plan."
+        )
+    return {
+        **tool_call,
+        "input": {
+            **payload,
+            "hold_ids": discovered_hold_ids,
+        },
+    }
+
+
+def _record_hold_id(
+    tool_call: JsonObject,
+    result: ToolExecutionResult,
+    *,
+    held_ids_by_fulfillment_order: dict[str, list[str]],
+) -> None:
+    if tool_call.get("tool") != "shopify_hold_fulfillment_order":
+        return
+    if result.status != ToolResultStatus.SUCCEEDED:
+        return
+    payload = _object_dict(tool_call.get("input"))
+    fulfillment_order_id = _value(payload, "fulfillment_order_id")
+    hold_id = _fulfillment_hold_id(result.data)
+    if not fulfillment_order_id or not hold_id:
+        return
+    held_ids_by_fulfillment_order.setdefault(fulfillment_order_id, []).append(hold_id)
+
+
+def _fulfillment_hold_id(value: object) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    data = value.get("data")
+    if not isinstance(data, dict):
+        return None
+    payload = data.get("fulfillmentOrderHold")
+    if not isinstance(payload, dict):
+        return None
+    hold = payload.get("fulfillmentHold")
+    if not isinstance(hold, dict):
+        return None
+    hold_id = hold.get("id")
+    return hold_id if isinstance(hold_id, str) and hold_id else None
 
 
 async def _invoke_tool_call(

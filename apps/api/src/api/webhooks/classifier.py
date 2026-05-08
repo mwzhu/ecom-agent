@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from api.integrations import IntegrationProvider
-from ecom_shared import ExceptionType, classify_order_exception
+from api.webhooks.customer_intent import (
+    apply_customer_language_understanding,
+    apply_customer_language_understanding_async,
+)
+from ecom_shared import ClassificationResult, ExceptionType, classify_order_exception
 
 JsonObject = dict[str, Any]
 
@@ -26,13 +30,66 @@ def build_webhook_case_seed(
 ) -> WebhookCaseSeed:
     order = _order_from_payload(payload)
     context = _context_from_payload(provider, headers=headers, payload=payload, order=order)
+    language_classification = apply_customer_language_understanding(order=order, context=context)
     explicit_exception_type = payload.get("exception_type")
-    if isinstance(explicit_exception_type, str):
+    if language_classification is None and isinstance(explicit_exception_type, str):
         context["exception_type"] = explicit_exception_type
-    classification = classify_order_exception(order, context)
+    classification = language_classification or classify_order_exception(order, context)
+    return _case_seed_from_classification(
+        provider=provider,
+        event_id=event_id,
+        headers=headers,
+        payload=payload,
+        order=order,
+        context=context,
+        classification=classification,
+        used_language=language_classification is not None,
+    )
+
+
+async def build_webhook_case_seed_async(
+    provider: IntegrationProvider,
+    *,
+    event_id: str,
+    headers: dict[str, str],
+    payload: JsonObject,
+) -> WebhookCaseSeed:
+    order = _order_from_payload(payload)
+    context = _context_from_payload(provider, headers=headers, payload=payload, order=order)
+    language_classification = await apply_customer_language_understanding_async(
+        order=order,
+        context=context,
+    )
+    explicit_exception_type = payload.get("exception_type")
+    if language_classification is None and isinstance(explicit_exception_type, str):
+        context["exception_type"] = explicit_exception_type
+    classification = language_classification or classify_order_exception(order, context)
+    return _case_seed_from_classification(
+        provider=provider,
+        event_id=event_id,
+        headers=headers,
+        payload=payload,
+        order=order,
+        context=context,
+        classification=classification,
+        used_language=language_classification is not None,
+    )
+
+
+def _case_seed_from_classification(
+    *,
+    provider: IntegrationProvider,
+    event_id: str,
+    headers: dict[str, str],
+    payload: JsonObject,
+    order: JsonObject,
+    context: JsonObject,
+    classification: ClassificationResult,
+    used_language: bool,
+) -> WebhookCaseSeed:
     exception_type = classification.exception_type
     context["classification"] = {
-        "source": "webhook_classifier_v1",
+        "source": _classification_source(context, used_language),
         "exception_type": exception_type,
         "confidence": classification.confidence,
         "signals": classification.signals,
@@ -56,6 +113,19 @@ def build_webhook_case_seed(
             "customer_email": order.get("email") or _nested(context, ["customer", "email"]),
         },
     )
+
+
+def _classification_source(context: JsonObject, used_language: bool) -> str:
+    if not used_language:
+        return "webhook_classifier_v1"
+    language = context.get("language_understanding")
+    if isinstance(language, dict):
+        intent = language.get("intent") or language.get("classification")
+        if isinstance(intent, dict):
+            source = intent.get("source")
+            if isinstance(source, str) and source:
+                return source
+    return "customer_language_understanding_v1"
 
 
 def webhook_external_account_id(

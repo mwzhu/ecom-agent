@@ -450,6 +450,87 @@ async def test_execute_tool_plan_invokes_structured_tool_registry_entry(
     ]
 
 
+@pytest.mark.asyncio
+async def test_execute_tool_plan_releases_only_created_shopify_hold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    release_inputs: list[dict[str, object]] = []
+
+    async def hold_tool(**_: object) -> dict[str, object]:
+        return {
+            "provider": "shopify",
+            "tool": "shopify_hold_fulfillment_order",
+            "idempotency_key": "key-hold",
+            "status": "succeeded",
+            "data": {
+                "data": {
+                    "fulfillmentOrderHold": {
+                        "fulfillmentHold": {"id": "gid://shopify/FulfillmentHold/123"}
+                    }
+                }
+            },
+            "error": None,
+        }
+
+    async def update_address_tool(**_: object) -> dict[str, object]:
+        return {
+            "provider": "shopify",
+            "tool": "shopify_update_shipping_address",
+            "idempotency_key": "key-address",
+            "status": "succeeded",
+            "data": {"ok": True},
+            "error": None,
+        }
+
+    async def release_tool(**kwargs: object) -> dict[str, object]:
+        release_inputs.append(dict(kwargs))
+        return {
+            "provider": "shopify",
+            "tool": "shopify_release_fulfillment_hold",
+            "idempotency_key": "key-release",
+            "status": "succeeded",
+            "data": {"ok": True},
+            "error": None,
+        }
+
+    monkeypatch.setitem(EXECUTION_TOOL_REGISTRY, "shopify_hold_fulfillment_order", hold_tool)
+    monkeypatch.setitem(
+        EXECUTION_TOOL_REGISTRY,
+        "shopify_update_shipping_address",
+        update_address_tool,
+    )
+    monkeypatch.setitem(
+        EXECUTION_TOOL_REGISTRY,
+        "shopify_release_fulfillment_hold",
+        release_tool,
+    )
+
+    result = await _execute_tool_plan(
+        merchant_id=uuid4(),
+        case_id=uuid4(),
+        tool_calls=[
+            {
+                "tool": "shopify_hold_fulfillment_order",
+                "idempotency_key": "key-hold",
+                "input": {"fulfillment_order_id": "gid://shopify/FulfillmentOrder/1"},
+            },
+            {
+                "tool": "shopify_update_shipping_address",
+                "idempotency_key": "key-address",
+                "input": {"order_id": "1", "shipping_address": {"zip": "94110"}},
+            },
+            {
+                "tool": "shopify_release_fulfillment_hold",
+                "idempotency_key": "key-release",
+                "input": {"fulfillment_order_id": "gid://shopify/FulfillmentOrder/1"},
+            },
+        ],
+    )
+
+    assert result.status == "succeeded"
+    assert release_inputs[0]["hold_ids"] == ["gid://shopify/FulfillmentHold/123"]
+
+
 def _client(processor: InMemoryRunProcessor, settings: Settings) -> TestClient:
     app.dependency_overrides[get_settings] = lambda: settings
     app.dependency_overrides[get_langgraph_run_processor] = lambda: processor

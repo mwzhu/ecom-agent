@@ -57,12 +57,14 @@ def address_change_request_subagent(state: OrderExceptionState) -> OrderExceptio
             "Please reply with the full corrected address, including apartment or suite if needed."
         )
         tool_calls = [
-            _hold_fulfillment_call(
-                case_id=case_id,
-                order=order,
-                context=context,
-                intent="hold_pending_address_change",
-                reason_notes="Customer requested an address update before shipment.",
+            *_optional_tool_call(
+                _hold_fulfillment_call(
+                    case_id=case_id,
+                    order=order,
+                    context=context,
+                    intent="hold_pending_address_change",
+                    reason_notes="Customer requested an address update before shipment.",
+                )
             ),
             *_draft_reply_calls(
                 case_id=case_id,
@@ -96,15 +98,17 @@ def address_change_request_subagent(state: OrderExceptionState) -> OrderExceptio
     )
     message = (
         f"Hi, we updated the shipping address on order {_order_name(order)} to "
-        f"{_single_line_address(requested_address)} and placed a temporary fulfillment hold while the warehouse sync completes."
+        f"{_single_line_address(requested_address)}. We also briefly held fulfillment while the warehouse sync completed."
     )
     tool_calls = [
-        _hold_fulfillment_call(
-            case_id=case_id,
-            order=order,
-            context=context,
-            intent="hold_for_address_change",
-            reason_notes="Customer requested a shipping address update before pick/pack.",
+        *_optional_tool_call(
+            _hold_fulfillment_call(
+                case_id=case_id,
+                order=order,
+                context=context,
+                intent="hold_for_address_change",
+                reason_notes="Customer requested a shipping address update before pick/pack.",
+            )
         ),
         *_optional_tool_call(
             _three_pl_hold_call(
@@ -123,6 +127,14 @@ def address_change_request_subagent(state: OrderExceptionState) -> OrderExceptio
                 "shipping_address": requested_address,
             },
         ),
+        *_optional_tool_call(
+            _release_fulfillment_hold_call(
+                case_id=case_id,
+                order=order,
+                context=context,
+                intent="release_address_change_hold",
+            )
+        ),
         _order_note_call(
             case_id=case_id,
             order=order,
@@ -140,7 +152,7 @@ def address_change_request_subagent(state: OrderExceptionState) -> OrderExceptio
         state,
         exception_type="address_change_request",
         summary="Customer requested a pre-shipment address change and provided a complete replacement address.",
-        recommendation="Hold fulfillment long enough to sync the address update, then confirm the change back to the customer.",
+        recommendation="Hold fulfillment for the address update, release the hold after Shopify accepts the new address, then confirm the change back to the customer.",
         tool_calls=_compact_tool_calls(tool_calls),
         confidence=0.9,
         rationale=[
@@ -163,7 +175,7 @@ def item_change_request_subagent(state: OrderExceptionState) -> OrderExceptionSt
             "so we can't safely change its items in place. We'll help with the best next option, "
             "such as a return, exchange, or a new order."
         )
-        tool_calls: list[JsonObject | None] = [
+        tool_calls = [
             *_draft_reply_calls(
                 case_id=case_id,
                 context=context,
@@ -196,12 +208,14 @@ def item_change_request_subagent(state: OrderExceptionState) -> OrderExceptionSt
             "Please reply with the exact item change you want, including the item to remove and the replacement variant or size if applicable."
         )
         tool_calls = [
-            _hold_fulfillment_call(
-                case_id=case_id,
-                order=order,
-                context=context,
-                intent="hold_pending_item_change_details",
-                reason_notes="Customer requested an item change but the requested edits are incomplete.",
+            *_optional_tool_call(
+                _hold_fulfillment_call(
+                    case_id=case_id,
+                    order=order,
+                    context=context,
+                    intent="hold_pending_item_change_details",
+                    reason_notes="Customer requested an item change but the requested edits are incomplete.",
+                )
             ),
             *_draft_reply_calls(
                 case_id=case_id,
@@ -235,12 +249,14 @@ def item_change_request_subagent(state: OrderExceptionState) -> OrderExceptionSt
             "The updated basket changes the order total, so we'll review the payment difference before applying the edit."
         )
         tool_calls = [
-            _hold_fulfillment_call(
-                case_id=case_id,
-                order=order,
-                context=context,
-                intent="hold_item_change_with_payment_delta",
-                reason_notes="Customer requested an item change with a non-zero payment delta.",
+            *_optional_tool_call(
+                _hold_fulfillment_call(
+                    case_id=case_id,
+                    order=order,
+                    context=context,
+                    intent="hold_item_change_with_payment_delta",
+                    reason_notes="Customer requested an item change with a non-zero payment delta.",
+                )
             ),
             *_draft_reply_calls(
                 case_id=case_id,
@@ -272,12 +288,14 @@ def item_change_request_subagent(state: OrderExceptionState) -> OrderExceptionSt
         f"Hi, we staged the requested item change for order {_order_name(order)} and placed a temporary fulfillment hold while the warehouse sync completes."
     )
     tool_calls = [
-        _hold_fulfillment_call(
-            case_id=case_id,
-            order=order,
-            context=context,
-            intent="hold_for_item_change",
-            reason_notes="Customer requested an item add/remove/swap before shipment.",
+        *_optional_tool_call(
+            _hold_fulfillment_call(
+                case_id=case_id,
+                order=order,
+                context=context,
+                intent="hold_for_item_change",
+                reason_notes="Customer requested an item add/remove/swap before shipment.",
+            )
         ),
         planned_tool_call(
             case_id=case_id,
@@ -454,12 +472,14 @@ def fraud_triage_subagent(state: OrderExceptionState) -> OrderExceptionState:
             rationale.append(f"The buyer also has {repeat_orders} prior completed order(s), so operator judgment still matters.")
 
         tool_calls = [
-            _hold_fulfillment_call(
-                case_id=case_id,
-                order=order,
-                context=context,
-                intent="hold_medium_fraud_review",
-                reason_notes=f"Fraud review required for score {score:.0f}.",
+            *_optional_tool_call(
+                _hold_fulfillment_call(
+                    case_id=case_id,
+                    order=order,
+                    context=context,
+                    intent="hold_medium_fraud_review",
+                    reason_notes=f"Fraud review required for score {score:.0f}.",
+                )
             ),
             *_optional_tool_call(
                 _search_customer_orders_call(
@@ -951,6 +971,27 @@ def _hold_fulfillment_call(
             "fulfillment_order_id": fulfillment_order_id,
             "reason": reason,
             "reason_notes": reason_notes,
+        },
+    )
+
+
+def _release_fulfillment_hold_call(
+    *,
+    case_id: str,
+    order: JsonObject,
+    context: JsonObject,
+    intent: str,
+) -> JsonObject | None:
+    fulfillment_order_id = _fulfillment_order_id(order, context)
+    if not fulfillment_order_id:
+        return None
+    return planned_tool_call(
+        case_id=case_id,
+        tool="shopify_release_fulfillment_hold",
+        intent=intent,
+        payload={
+            "fulfillment_order_id": fulfillment_order_id,
+            "external_id": f"{case_id}:{intent}",
         },
     )
 

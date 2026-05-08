@@ -12,7 +12,7 @@ from api.db.models import ActorType, NormalizedEventSourceType
 from api.integrations import IntegrationProvider, IntegrationRepository
 from api.integrations.dependencies import get_integration_repository
 from api.webhooks.classifier import (
-    build_webhook_case_seed,
+    build_webhook_case_seed_async,
     is_flowlabs_demo_payload,
     webhook_external_account_id,
 )
@@ -155,18 +155,6 @@ async def _receive_webhook(
         return WebhookAcceptedResponse(provider=provider, event_id=event_id, status="ignored")
 
     await repository.set_merchant_scope(merchant_id)
-    payload = await enrich_webhook_payload(
-        merchant_id=merchant_id,
-        provider=provider,
-        payload=payload,
-        repository=repository,
-    )
-    case_seed = build_webhook_case_seed(
-        provider,
-        event_id=event_id,
-        headers=headers,
-        payload=payload,
-    )
     created = await repository.record_webhook_event(
         merchant_id=merchant_id,
         provider=provider,
@@ -175,6 +163,19 @@ async def _receive_webhook(
     )
     if not created:
         return WebhookAcceptedResponse(provider=provider, event_id=event_id, status="duplicate")
+
+    payload = await enrich_webhook_payload(
+        merchant_id=merchant_id,
+        provider=provider,
+        payload=payload,
+        repository=repository,
+    )
+    case_seed = await build_webhook_case_seed_async(
+        provider,
+        event_id=event_id,
+        headers=headers,
+        payload=payload,
+    )
     dedupe_key = f"webhook:{provider.value}:{event_id}"
     normalized_created = await repository.record_normalized_event(
         merchant_id=merchant_id,
@@ -394,6 +395,7 @@ async def _existing_case_for_followup_event(
         return None
     topic = headers.get("x-shopify-topic") or payload.get("topic")
     if topic not in {
+        "orders/create",
         "orders/updated",
         "orders/cancelled",
         "refunds/create",

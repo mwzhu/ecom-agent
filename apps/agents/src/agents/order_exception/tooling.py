@@ -12,6 +12,7 @@ WRITE_TOOLS = {
     "shopify_update_shipping_address",
     "shopify_create_refund",
     "shopify_hold_fulfillment_order",
+    "shopify_release_fulfillment_hold",
     "shopify_cancel_order",
     "stripe_create_refund",
     "gorgias_draft_reply",

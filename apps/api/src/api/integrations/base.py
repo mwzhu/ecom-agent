@@ -12,7 +12,8 @@ from uuid import UUID
 import httpx
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import cast, delete, or_, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -684,12 +685,21 @@ class SqlAlchemyIntegrationRepository:
         provider: IntegrationProvider,
         order_id: str,
     ) -> UUID | None:
+        order_id_matches = [Case.subject_ref["order_id"].as_string() == str(order_id)]
+        try:
+            numeric_order_id = int(order_id)
+        except ValueError:
+            numeric_order_id = None
+        if numeric_order_id is not None:
+            order_id_matches.append(
+                cast(Case.subject_ref, JSONB).contains({"order_id": numeric_order_id})
+            )
         result = await self._session.execute(
             select(Case.id)
             .where(
                 Case.merchant_id == merchant_id,
                 Case.subject_ref["provider"].as_string() == provider.value,
-                Case.subject_ref["order_id"].as_string() == str(order_id),
+                or_(*order_id_matches),
             )
             .order_by(Case.created_at.asc())
             .limit(1)

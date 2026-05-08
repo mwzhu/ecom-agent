@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
+import api.webhooks.customer_intent as customer_intent
 from api.config import Settings, get_settings
 from api.db.models import ActorType, NormalizedEventSourceType, ToolCallStatus
 from api.integrations import IntegrationProvider
@@ -367,6 +368,77 @@ def test_shopify_followup_webhook_updates_existing_case_without_new_run() -> Non
     ]
 
 
+def test_shopify_late_order_create_updates_existing_order_case_without_new_run() -> None:
+    secret = "shopify-webhook-secret"
+    merchant_id = uuid4()
+    repository = InMemoryWebhookRepository(
+        webhook_sources={(IntegrationProvider.SHOPIFY, "demo.myshopify.com"): merchant_id}
+    )
+    dispatcher = InMemoryDispatcher()
+    client = _client(repository, dispatcher, Settings(shopify_webhook_secret=secret))
+
+    updated_body = json.dumps(
+        {
+            "topic": "orders/updated",
+            "id": 12345,
+            "name": "#1001",
+            "risk_score": 86,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    updated_headers = {
+        "content-type": "application/json",
+        "x-shopify-shop-domain": "demo.myshopify.com",
+        "x-shopify-topic": "orders/updated",
+        "x-shopify-webhook-id": "evt_shopify_order_updated_first",
+        "x-shopify-hmac-sha256": _shopify_signature(secret, updated_body),
+    }
+    create_body = json.dumps(
+        {
+            "topic": "orders/create",
+            "id": 12345,
+            "name": "#1001",
+            "risk_score": 86,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    create_headers = {
+        "content-type": "application/json",
+        "x-shopify-shop-domain": "demo.myshopify.com",
+        "x-shopify-topic": "orders/create",
+        "x-shopify-webhook-id": "evt_shopify_order_create_late",
+        "x-shopify-hmac-sha256": _shopify_signature(secret, create_body),
+    }
+
+    try:
+        first = client.post("/v1/webhooks/shopify", content=updated_body, headers=updated_headers)
+        second = client.post("/v1/webhooks/shopify", content=create_body, headers=create_headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 200
+    assert first.json()["status"] == "accepted"
+    assert second.status_code == 200
+    assert second.json() == {
+        "provider": "shopify",
+        "event_id": "evt_shopify_order_create_late",
+        "status": "updated_existing_case",
+        "case_id": str(repository.cases[0]["id"]),
+        "run_id": None,
+    }
+    assert len(repository.cases) == 1
+    assert len(dispatcher.runs) == 1
+    assert [event["kind"] for event in repository.events] == [
+        "webhook.received",
+        "agent.run_started",
+        "webhook.followup_received",
+    ]
+    assert repository.normalized_processed == [
+        ("webhook:shopify:evt_shopify_order_updated_first", repository.cases[0]["id"]),
+        ("webhook:shopify:evt_shopify_order_create_late", repository.cases[0]["id"]),
+    ]
+
+
 def test_shopify_webhook_rejects_bad_signature() -> None:
     client = _client(
         InMemoryWebhookRepository(),
@@ -546,6 +618,110 @@ def test_gorgias_webhook_accepts_static_shared_secret_for_http_integration() -> 
     assert repository.scopes == [merchant_id]
     assert repository.cases[0]["type"] == "address_change_request"
     assert len(dispatcher.runs) == 1
+
+
+def test_gorgias_ticket_text_extracts_address_change_slots(monkeypatch) -> None:
+    llm_calls = 0
+
+    async def fake_invoke_json(**kwargs: object) -> dict[str, object]:
+        nonlocal llm_calls
+        llm_calls += 1
+        body = kwargs["body"]
+        assert isinstance(body, dict)
+        if body.get("workflow") == "address_change_request":
+            return {
+                "requested_address": {
+                    "address1": "515 Valencia St",
+                    "address2": None,
+                    "city": "San Francisco",
+                    "province": "CA",
+                    "zip": "94110",
+                    "country": "US",
+                },
+                "order_reference": "#1036",
+                "is_complete": True,
+                "needs_clarification": False,
+                "confidence": 0.92,
+                "evidence": ["Message contains street, city, state, and ZIP."],
+            }
+        return {
+            "intent": "address_change_request",
+            "confidence": 0.91,
+            "order_reference": "#1036",
+            "evidence": ["Customer asked to change the shipping address."],
+            "needs_human_triage": False,
+        }
+
+    monkeypatch.setenv("ORDER_EXCEPTION_CUSTOMER_LANGUAGE_LLM_ENABLED", "true")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(customer_intent, "_invoke_json_async", fake_invoke_json)
+    secret = "gorgias-static-secret"
+    merchant_id = uuid4()
+    repository = InMemoryWebhookRepository(
+        webhook_sources={(IntegrationProvider.GORGIAS, "flow-labs-2.gorgias.com"): merchant_id}
+    )
+    dispatcher = InMemoryDispatcher()
+    client = _client(repository, dispatcher, Settings(gorgias_webhook_secret=secret))
+    body = json.dumps(
+        {
+            "id": 1036,
+            "ticket": {
+                "id": 1036,
+                "subject": "Address change for #1036",
+                "excerpt": (
+                    "Hi, I just placed order #1036. Can you change the shipping address "
+                    "to 515 Valencia St, San Francisco, CA 94110 before it ships?"
+                ),
+                "customer": {"email": "buyer@example.com"},
+            },
+            "order": {
+                "id": "gid://shopify/Order/1036",
+                "name": "#1036",
+                "email": "buyer@example.com",
+            },
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    try:
+        response = client.post(
+            "/v1/webhooks/gorgias",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "x-gorgias-domain": "flow-labs-2.gorgias.com",
+                "x-ecom-webhook-secret": secret,
+            },
+        )
+        duplicate = client.post(
+            "/v1/webhooks/gorgias",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "x-gorgias-domain": "flow-labs-2.gorgias.com",
+                "x-ecom-webhook-secret": secret,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert duplicate.status_code == 200
+    assert duplicate.json()["status"] == "duplicate"
+    assert llm_calls == 2
+    assert repository.cases[0]["type"] == "address_change_request"
+    request = dispatcher.runs[0].context["customer_request"]
+    assert request["type"] == "address_change_request"
+    assert request["requested_address"] == {
+        "address1": "515 Valencia St",
+        "address2": None,
+        "city": "San Francisco",
+        "province": "CA",
+        "zip": "94110",
+        "country": "US",
+    }
+    assert request["is_complete"] is True
+    assert request["needs_clarification"] is False
 
 
 def test_gorgias_webhook_accepts_body_shared_secret_for_http_integration() -> None:
