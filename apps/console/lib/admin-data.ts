@@ -57,6 +57,16 @@ export type FopSummary = {
   created_at: string;
 };
 
+export type IntegrationHealth = {
+  provider: "shopify" | "stripe" | "gorgias" | string;
+  status: string;
+  provider_account_id: string | null;
+  granted_scopes: string[];
+  missing_scopes: string[];
+  checked_at: string | null;
+  error: Record<string, unknown> | null;
+};
+
 export type AdminConsoleData = {
   source: "api" | "fixture";
   mode: "auto" | "api" | "fixture";
@@ -66,6 +76,13 @@ export type AdminConsoleData = {
   fopYaml: string;
   fops: FopSummary[];
   evalReviews: EvalReviewItem[];
+  integrationHealth: IntegrationHealth[];
+  setup: {
+    shopifyRedirectUri: string;
+    stripeRedirectUri: string;
+    gorgiasRedirectUri: string;
+    publicApiBaseUrl: string;
+  };
   loadedAt: string;
   apiError?: string;
 };
@@ -117,9 +134,10 @@ export async function loadAdminConsoleData(): Promise<AdminConsoleData> {
     }
     const apiCases = await loadApiCases(auth.token);
     if (apiCases.length > 0 || CONSOLE_DATA_MODE === "api") {
-      const [evalReviews, apiFops] = await Promise.all([
+      const [evalReviews, apiFops, integrationHealth] = await Promise.all([
         loadApiEvalReviews(auth.token),
         loadApiFops(auth.token),
+        loadApiIntegrationHealth(auth.token),
       ]);
       return {
         source: "api",
@@ -130,6 +148,8 @@ export async function loadAdminConsoleData(): Promise<AdminConsoleData> {
         fopYaml,
         fops: apiFops.length > 0 ? apiFops : fixtureFops,
         evalReviews,
+        integrationHealth,
+        setup: setupInfo(),
         loadedAt: new Date().toISOString(),
       };
     }
@@ -144,6 +164,8 @@ export async function loadAdminConsoleData(): Promise<AdminConsoleData> {
         fopYaml,
         fops: fixtureFops,
         evalReviews: [],
+        integrationHealth: [],
+        setup: setupInfo(),
         loadedAt: new Date().toISOString(),
         apiError: error instanceof Error ? error.message : "API data could not be loaded.",
       };
@@ -170,7 +192,19 @@ function fixtureData({
     fopYaml,
     fops: fixtureFops,
     evalReviews: fixtureEvalReviews(fixtures),
+    integrationHealth: [],
+    setup: setupInfo(),
     loadedAt: new Date().toISOString(),
+  };
+}
+
+function setupInfo(): AdminConsoleData["setup"] {
+  const publicApiBaseUrl = serverEnv("API_BASE_URL") ?? API_BASE_URL;
+  return {
+    publicApiBaseUrl,
+    shopifyRedirectUri: `${publicApiBaseUrl}/v1/integrations/shopify/callback`,
+    stripeRedirectUri: `${publicApiBaseUrl}/v1/integrations/stripe/connect/callback`,
+    gorgiasRedirectUri: `${publicApiBaseUrl}/v1/integrations/gorgias/callback`,
   };
 }
 
@@ -202,6 +236,14 @@ async function loadApiFops(token: string): Promise<FopSummary[]> {
       ...fop,
       status: fop.status,
     }));
+  } catch {
+    return [];
+  }
+}
+
+async function loadApiIntegrationHealth(token: string): Promise<IntegrationHealth[]> {
+  try {
+    return await apiFetch<IntegrationHealth[]>("/v1/integrations/health", token);
   } catch {
     return [];
   }

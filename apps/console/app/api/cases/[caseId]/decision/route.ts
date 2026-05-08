@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getConsoleApiAuth } from "../../../../../lib/console-auth";
+import { readJsonResponse } from "../../../../../lib/http-json";
 import { serverEnv } from "../../../../../lib/server-env";
 
 const API_BASE_URL =
@@ -41,6 +42,6 @@ export async function POST(request: Request, context: RouteContext) {
     },
     body: JSON.stringify(body),
   });
-  const payload = (await response.json()) as unknown;
+  const payload = await readJsonResponse(response);
   return NextResponse.json(payload, { status: response.status });
 }

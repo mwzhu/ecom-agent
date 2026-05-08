@@ -52,6 +52,12 @@ class StripeClient:
             headers={"Authorization": f"Bearer {access_token}"},
         )
 
+    async def get_account(self) -> JsonObject:
+        return ensure_object(
+            IntegrationProvider.STRIPE,
+            await self._http.request_json("GET", "/account"),
+        )
+
     async def get_charge(self, charge_id: str) -> JsonObject:
         return ensure_object(
             IntegrationProvider.STRIPE,
@@ -105,6 +111,20 @@ class StripeClient:
                 headers={"Idempotency-Key": idempotency_key},
                 data=form,
             ),
+        )
+
+    async def create_webhook_endpoint(
+        self,
+        *,
+        callback_url: str,
+        enabled_events: list[str],
+    ) -> JsonObject:
+        form: dict[str, str] = {"url": callback_url}
+        for index, event in enumerate(enabled_events):
+            form[f"enabled_events[{index}]"] = event
+        return ensure_object(
+            IntegrationProvider.STRIPE,
+            await self._http.request_json("POST", "/webhook_endpoints", data=form),
         )
 
 

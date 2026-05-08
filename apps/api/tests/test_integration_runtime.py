@@ -239,3 +239,87 @@ async def test_execute_integration_tool_normalizes_rate_limit_errors() -> None:
     assert result.error.kind == IntegrationErrorKind.RATE_LIMITED
     assert result.error.retry_after == "2"
     assert repository.events[0]["kind"] == "tool_call.failed"
+
+
+@pytest.mark.asyncio
+async def test_execute_integration_tool_blocks_missing_scope() -> None:
+    merchant_id = uuid4()
+    case_id = uuid4()
+    calls = 0
+    repository = InMemoryIntegrationRepository(
+        credential=ProviderCredential(
+            provider=IntegrationProvider.STRIPE,
+            access_token="sk_test",
+            refresh_token=None,
+            expires_at=None,
+            metadata={"granted_scopes": ["charges:read", "disputes:read"]},
+        )
+    )
+
+    async def operation(_: ProviderCredential) -> JsonObject:
+        nonlocal calls
+        calls += 1
+        return {"id": "re_123"}
+
+    result = await execute_integration_tool(
+        repository=repository,
+        provider=IntegrationProvider.STRIPE,
+        tool_name="stripe_create_refund",
+        request=ToolRequest(
+            merchant_id=merchant_id,
+            case_id=case_id,
+            idempotency_key="case-1:refund",
+        ),
+        operation=operation,
+        write=True,
+    )
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert result.error.details["missing_scopes"] == ["refunds:write"]
+    assert result.error.details["block_reasons"] == ["missing_scopes"]
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_shopify_write_scopes_satisfy_read_tool_requirements() -> None:
+    merchant_id = uuid4()
+    case_id = uuid4()
+    calls = 0
+    repository = InMemoryIntegrationRepository(
+        credential=ProviderCredential(
+            provider=IntegrationProvider.SHOPIFY,
+            access_token="shpat_test",
+            refresh_token=None,
+            expires_at=None,
+            metadata={
+                "shop_domain": "demo.myshopify.com",
+                "granted_scopes": [
+                    "write_fulfillments",
+                    "write_merchant_managed_fulfillment_orders",
+                    "write_orders",
+                ],
+            },
+        )
+    )
+
+    async def operation(_: ProviderCredential) -> JsonObject:
+        nonlocal calls
+        calls += 1
+        return {"ok": True}
+
+    result = await execute_integration_tool(
+        repository=repository,
+        provider=IntegrationProvider.SHOPIFY,
+        tool_name="shopify_hold_fulfillment_order",
+        request=ToolRequest(
+            merchant_id=merchant_id,
+            case_id=case_id,
+            idempotency_key="case-1:hold",
+        ),
+        operation=operation,
+        write=True,
+    )
+
+    assert result.status == "succeeded"
+    assert calls == 1

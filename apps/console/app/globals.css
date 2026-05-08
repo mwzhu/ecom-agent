@@ -90,6 +90,7 @@ h3 {
 .statusStrip,
 .queueHeader,
 .caseHeader,
+.caseHeaderBadges,
 .buttonRow,
 .toggleLabel,
 .compactItem {
@@ -134,6 +135,7 @@ h3 {
 
 .modePill,
 .riskPill,
+.syntheticPill,
 .statusStrip span {
   border-radius: 999px;
   font-size: 0.78rem;
@@ -182,18 +184,22 @@ h3 {
 
 .queuePanel,
 .reviewPanel,
+.onboardingPanel,
+.providerCard,
 .simpleCard,
 .answerCard,
 .decisionCard,
 .moreDetails,
 .emptyState,
-.errorBanner {
+.errorBanner,
+.warningBanner {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
 
-.errorBanner {
+.errorBanner,
+.warningBanner {
   background: #fff7ed;
   border-color: #fed7aa;
   display: grid;
@@ -201,12 +207,183 @@ h3 {
   padding: 12px;
 }
 
-.errorBanner strong {
+.errorBanner strong,
+.warningBanner strong {
   color: var(--ink);
 }
 
-.errorBanner span {
+.errorBanner span,
+.warningBanner span {
   color: #9a3412;
+  overflow-wrap: anywhere;
+}
+
+.onboardingPanel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.onboardingHeader,
+.providerTopline,
+.providerActions {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.onboardingHeader p,
+.providerTopline p,
+.accountHint,
+.scopeHint {
+  color: var(--muted);
+}
+
+.providerGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.providerCard {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.providerCard.connected {
+  border-color: #bbf7d0;
+}
+
+.providerCard.notConnected {
+  border-color: var(--line);
+}
+
+.providerTopline {
+  align-items: flex-start;
+}
+
+.providerTopline p,
+.accountHint,
+.scopeHint {
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.connectionPill {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  font-size: 0.74rem;
+  font-weight: 850;
+  padding: 7px 9px;
+}
+
+.connectionPill.ready {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.connectionPill.warn {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.connectionPill.empty {
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
+.fieldLabel {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.84rem;
+  font-weight: 800;
+  gap: 8px;
+}
+
+input {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  min-height: 42px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.providerActions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.providerActions button,
+.secondaryButton {
+  align-items: center;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  color: #ffffff;
+  display: inline-flex;
+  font-weight: 850;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.secondaryButton {
+  background: var(--panel);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.inlineDetails {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.inlineDetails summary {
+  color: var(--blue);
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.stackedFields {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.scopeHint {
+  background: var(--amber-soft);
+  border-radius: 8px;
+  color: var(--amber);
+  font-weight: 800;
+  padding: 9px 10px;
+}
+
+.setupHint {
+  background: #f8fbff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.setupHint span {
+  color: var(--blue);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.setupHint code {
+  color: var(--ink);
+  font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
 
@@ -274,6 +451,11 @@ h3 {
   font-weight: 800;
 }
 
+.syntheticInline {
+  color: #075985;
+  font-weight: 850;
+}
+
 .statusDot {
   border-radius: 999px;
   height: 10px;
@@ -311,6 +493,16 @@ h3 {
   border-bottom: 1px solid var(--line);
   justify-content: space-between;
   padding-bottom: 16px;
+}
+
+.caseHeaderBadges {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.syntheticPill {
+  background: #e0f2fe;
+  color: #075985;
 }
 
 .riskPill.low {
@@ -520,7 +712,8 @@ textarea {
 @media (max-width: 1050px) {
   .reviewLayout,
   .answerGrid,
-  .detailsGrid {
+  .detailsGrid,
+  .providerGrid {
     grid-template-columns: 1fr;
   }
 
@@ -537,6 +730,8 @@ textarea {
 
   .appHeader,
   .headerActions,
+  .onboardingHeader,
+  .providerTopline,
   .caseHeader {
     align-items: stretch;
     flex-direction: column;
@@ -555,7 +750,9 @@ textarea {
   }
 
   .buttonRow button,
-  .detailBlock button {
+  .detailBlock button,
+  .providerActions button,
+  .secondaryButton {
     width: 100%;
   }
 }

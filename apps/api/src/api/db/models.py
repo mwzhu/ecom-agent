@@ -32,6 +32,8 @@ class CaseStatus(StrEnum):
     OPEN = "open"
     PENDING_APPROVAL = "pending_approval"
     EXECUTING = "executing"
+    PARTIALLY_EXECUTED = "partially_executed"
+    NEEDS_HUMAN_RECOVERY = "needs_human_recovery"
     RESOLVED = "resolved"
     FAILED = "failed"
     CANCELED = "canceled"
@@ -69,6 +71,56 @@ class AgentRunExecutionStatus(StrEnum):
     FAILED = "failed"
 
 
+class IntegrationCredentialStatus(StrEnum):
+    ACTIVE = "active"
+    DISCONNECTED = "disconnected"
+    REVOKED = "revoked"
+
+
+class IntegrationHealthStatus(StrEnum):
+    UNKNOWN = "unknown"
+    HEALTHY = "healthy"
+    MISSING_SCOPES = "missing_scopes"
+    AUTH_FAILED = "auth_failed"
+    ERROR = "error"
+
+
+class WebhookRegistrationStatus(StrEnum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    DEGRADED = "degraded"
+    DISABLED = "disabled"
+
+
+class NormalizedEventSourceType(StrEnum):
+    WEBHOOK = "webhook"
+    SCHEDULED_MONITOR = "scheduled_monitor"
+    BACKFILL = "backfill"
+    MANUAL = "manual"
+
+
+class ApprovalRequestStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ESCALATED = "escalated"
+    EXPIRED = "expired"
+
+
+class PolicyApprovalMode(StrEnum):
+    AUTO_EXECUTE = "auto_execute"
+    APPROVAL_REQUIRED = "approval_required"
+    DRAFT_ONLY = "draft_only"
+    NEVER_ACT = "never_act"
+
+
+class CustomerMessageMode(StrEnum):
+    DISABLED = "disabled"
+    DRAFT_ONLY = "draft_only"
+    AUTO_CREATE_DRAFT = "auto_create_draft"
+    AUTO_SEND = "auto_send"
+
+
 class ActorType(StrEnum):
     AGENT = "agent"
     HUMAN = "human"
@@ -100,6 +152,34 @@ class IntegrationCredential(Base):
     encrypted_refresh: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     kms_key_id: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default=IntegrationCredentialStatus.ACTIVE)
+    provider_account_id: Mapped[str | None] = mapped_column(String(255))
+    granted_scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    last_health_status: Mapped[str] = mapped_column(
+        String(32),
+        default=IntegrationHealthStatus.UNKNOWN,
+    )
+    last_health_error: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    last_health_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disconnected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_events_merchant_created", "merchant_id", "created_at"),
+        Index("ix_audit_events_actor_created", "actor_type", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    actor_type: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[str | None] = mapped_column(String(255))
+    action: Mapped[str] = mapped_column(String(128))
+    provider: Mapped[str | None] = mapped_column(String(64))
+    case_id: Mapped[UUID | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -118,6 +198,34 @@ class WebhookSource(Base):
     merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
     provider: Mapped[str] = mapped_column(String(64))
     external_account_id: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WebhookRegistry(Base):
+    __tablename__ = "webhook_registry"
+    __table_args__ = (
+        UniqueConstraint(
+            "merchant_id",
+            "provider",
+            "topic",
+            name="uq_webhook_registry_merchant_provider_topic",
+        ),
+        Index("ix_webhook_registry_provider_status", "provider", "status"),
+        Index("ix_webhook_registry_merchant_provider", "merchant_id", "provider"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    provider: Mapped[str] = mapped_column(String(64))
+    topic: Mapped[str] = mapped_column(String(128))
+    external_webhook_id: Mapped[str | None] = mapped_column(String(255))
+    signing_secret_ref: Mapped[str | None] = mapped_column(String(255))
+    previous_signing_secret_ref: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default=WebhookRegistrationStatus.PENDING)
+    callback_url: Mapped[str] = mapped_column(String(2048))
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    secret_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    previous_secret_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -188,6 +296,155 @@ class WebhookEvent(Base):
     merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class NormalizedEvent(Base):
+    __tablename__ = "normalized_events"
+    __table_args__ = (
+        UniqueConstraint("merchant_id", "dedupe_key", name="uq_normalized_events_dedupe"),
+        Index(
+            "ix_normalized_events_merchant_processed",
+            "merchant_id",
+            "processed_at",
+            "observed_at",
+        ),
+        Index("ix_normalized_events_source_provider", "source_type", "provider"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    source_type: Mapped[str] = mapped_column(String(32))
+    provider: Mapped[str | None] = mapped_column(String(64))
+    source_event_id: Mapped[str] = mapped_column(String(255))
+    event_type: Mapped[str] = mapped_column(String(128))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    dedupe_key: Mapped[str] = mapped_column(String(512))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    case_id: Mapped[UUID | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ScheduledMonitorCursor(Base):
+    __tablename__ = "scheduled_monitor_cursors"
+    __table_args__ = (
+        UniqueConstraint(
+            "merchant_id",
+            "provider",
+            "monitor_type",
+            name="uq_scheduled_monitor_cursors_monitor",
+        ),
+        Index("ix_scheduled_monitor_cursors_next_run", "next_run_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    provider: Mapped[str] = mapped_column(String(64))
+    monitor_type: Mapped[str] = mapped_column(String(128))
+    cursor: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    cadence_seconds: Mapped[int] = mapped_column(Integer, default=3600)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    backoff_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rate_limit_state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class AutomationPolicy(Base):
+    __tablename__ = "automation_policies"
+    __table_args__ = (
+        UniqueConstraint(
+            "merchant_id",
+            "exception_type",
+            "tool",
+            name="uq_automation_policies_scope",
+        ),
+        Index("ix_automation_policies_merchant_exception", "merchant_id", "exception_type"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    exception_type: Mapped[str] = mapped_column(String(128))
+    tool: Mapped[str] = mapped_column(String(128), default="*")
+    approval_mode: Mapped[str] = mapped_column(
+        String(32),
+        default=PolicyApprovalMode.APPROVAL_REQUIRED,
+    )
+    customer_message_mode: Mapped[str] = mapped_column(
+        String(32),
+        default=CustomerMessageMode.DRAFT_ONLY,
+    )
+    thresholds: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    limits: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[str] = mapped_column(String(255), default="system")
+    updated_by: Mapped[str] = mapped_column(String(255), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class ApprovalRequest(Base):
+    __tablename__ = "approval_requests"
+    __table_args__ = (
+        Index("ix_approval_requests_merchant_status_due", "merchant_id", "status", "due_at"),
+        Index("ix_approval_requests_case_created", "case_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    case_id: Mapped[UUID] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"))
+    assigned_group: Mapped[str] = mapped_column(String(128))
+    primary_approver: Mapped[str | None] = mapped_column(String(255))
+    escalation_group: Mapped[str | None] = mapped_column(String(128))
+    requested_action: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), default=ApprovalRequestStatus.PENDING)
+    timeout_behavior: Mapped[str] = mapped_column(String(32), default="no_auto_approve")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MessageTemplate(Base):
+    __tablename__ = "message_templates"
+    __table_args__ = (
+        UniqueConstraint("merchant_id", "template_key", name="uq_message_templates_key"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    template_key: Mapped[str] = mapped_column(String(128))
+    body: Mapped[str] = mapped_column(Text)
+    channel: Mapped[str] = mapped_column(String(32), default="email")
+    brand_voice: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GeneratedMessageAudit(Base):
+    __tablename__ = "generated_message_audits"
+    __table_args__ = (
+        Index("ix_generated_message_audits_case_created", "case_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    merchant_id: Mapped[UUID] = mapped_column(ForeignKey("merchants.id", ondelete="CASCADE"))
+    case_id: Mapped[UUID] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"))
+    provider: Mapped[str | None] = mapped_column(String(64))
+    channel: Mapped[str] = mapped_column(String(32), default="email")
+    body: Mapped[str] = mapped_column(Text)
+    policy_decision: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

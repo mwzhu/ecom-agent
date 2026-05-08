@@ -226,7 +226,11 @@ def _lift_customer_request_context(context: JsonObject, payload: JsonObject) -> 
     if isinstance(customer_request, dict) and customer_request:
         return
 
-    request_type = payload.get("request_type") or _nested(payload, ["ticket", "intent"])
+    request_type = (
+        payload.get("request_type")
+        or _nested(payload, ["ticket", "intent"])
+        or _request_type_from_demo_shopify_payload(payload)
+    )
     if isinstance(request_type, str) and request_type:
         context["customer_request"] = {"type": request_type}
 
@@ -243,6 +247,47 @@ def _lift_customer_request_context(context: JsonObject, payload: JsonObject) -> 
         if isinstance(existing, dict):
             existing.setdefault("requested_changes", requested_changes)
         context.setdefault("item_change", {"requested_changes": requested_changes})
+
+
+def _request_type_from_demo_shopify_payload(payload: JsonObject) -> str | None:
+    if not _is_flowlabs_demo_payload(payload):
+        return None
+    tags = _tag_values(payload.get("tags"))
+    for tag in tags:
+        normalized = tag.lower().replace("-", "_")
+        if normalized in {
+            "address_change_request",
+            "item_change_request",
+            "order_cancellation_request",
+            "wismo",
+        }:
+            return normalized
+    note = str(payload.get("note") or "").lower()
+    if "address change" in note:
+        return "address_change_request"
+    if "cancellation" in note or "cancel" in note:
+        return "order_cancellation_request"
+    if "item change" in note or "swap" in note:
+        return "item_change_request"
+    if "status" in note or "shipping status" in note or "wismo" in note:
+        return "wismo"
+    return None
+
+
+def is_flowlabs_demo_payload(payload: JsonObject) -> bool:
+    return _is_flowlabs_demo_payload(payload)
+
+
+def _is_flowlabs_demo_payload(payload: JsonObject) -> bool:
+    return "flowlabs-demo" in _tag_values(payload.get("tags"))
+
+
+def _tag_values(value: object) -> set[str]:
+    if isinstance(value, str):
+        return {item.strip().lower() for item in value.split(",") if item.strip()}
+    if isinstance(value, list):
+        return {str(item).strip().lower() for item in value if str(item).strip()}
+    return set()
 
 
 def _lift_shipment_context(

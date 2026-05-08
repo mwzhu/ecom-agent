@@ -1,0 +1,9 @@
+tunnel: 8b0321e9-90c3-40ec-8cd9-5b9637312456
+credentials-file: /Users/michaelzhu/.cloudflared/8b0321e9-90c3-40ec-8cd9-5b9637312456.json
+
+ingress:
+  - hostname: api.flowlabshq.com
+    service: http://localhost:8000
+  - hostname: console.flowlabshq.com
+    service: http://localhost:3001
+  - service: http_status:404

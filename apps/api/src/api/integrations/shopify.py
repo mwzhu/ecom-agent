@@ -89,7 +89,7 @@ class ShopifyClient:
             IntegrationProvider.SHOPIFY,
             base_url=(
                 f"https://{safe_shop_domain}/admin/api/"
-                f"{settings.shopify_admin_api_version}/graphql.json"
+                f"{settings.shopify_admin_api_version}"
             ),
             headers={
                 "X-Shopify-Access-Token": access_token,
@@ -102,7 +102,7 @@ class ShopifyClient:
             IntegrationProvider.SHOPIFY,
             await self._http.request_json(
                 "POST",
-                "",
+                "graphql.json",
                 json_body={"query": query, "variables": variables or {}},
             ),
         )
@@ -193,6 +193,41 @@ class ShopifyClient:
             }
             """,
             {"query": query, "first": limit},
+        )
+
+    async def create_order(
+        self,
+        *,
+        order: JsonObject,
+        options: JsonObject | None = None,
+    ) -> JsonObject:
+        response = await self.graphql(
+            """
+            mutation EcomAgentOrderCreate(
+              $order: OrderCreateOrderInput!,
+              $options: OrderCreateOptionsInput
+            ) {
+              orderCreate(order: $order, options: $options) {
+                order {
+                  id
+                  name
+                  email
+                  tags
+                  displayFinancialStatus
+                  displayFulfillmentStatus
+                  totalPriceSet { shopMoney { amount currencyCode } }
+                }
+                userErrors { field message code }
+              }
+            }
+            """,
+            {"order": order, "options": options or {}},
+        )
+        return _mutation_payload(
+            response,
+            "orderCreate",
+            provider=IntegrationProvider.SHOPIFY,
+            message="Shopify orderCreate returned user errors.",
         )
 
     async def update_order_note(self, order_id: str, note: str) -> JsonObject:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,7 +14,7 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.config import Settings, get_settings
+from api.config import PRODUCTION_PROVIDER_WRITE_ACK, Settings, get_settings
 from api.db.models import (
     ActorType,
     AgentRunExecution,
@@ -45,9 +46,16 @@ from api.integrations.shopify import (
     shopify_update_order_note,
     shopify_update_shipping_address,
 )
+from api.integrations.stripe import (
+    stripe_create_refund,
+    stripe_get_charge,
+    stripe_get_dispute,
+    stripe_list_disputes,
+)
 
 ToolRunner = Callable[..., Awaitable[JsonObject]]
 ToolRegistryEntry = BaseTool | ToolRunner
+logger = logging.getLogger(__name__)
 
 EXECUTION_TOOL_REGISTRY: dict[str, ToolRegistryEntry] = {
     "gorgias_draft_reply": gorgias_draft_reply,
@@ -65,6 +73,10 @@ EXECUTION_TOOL_REGISTRY: dict[str, ToolRegistryEntry] = {
     "shopify_search_orders": shopify_search_orders,
     "shopify_update_order_note": shopify_update_order_note,
     "shopify_update_shipping_address": shopify_update_shipping_address,
+    "stripe_create_refund": stripe_create_refund,
+    "stripe_get_charge": stripe_get_charge,
+    "stripe_get_dispute": stripe_get_dispute,
+    "stripe_list_disputes": stripe_list_disputes,
 }
 
 
@@ -193,6 +205,81 @@ class SdkLangGraphRunProcessor:
                 execution_status=AgentRunExecutionStatus.SYNCED.value,
             )
 
+        synthetic_run_tag = _synthetic_run_tag_from_state(completed_run.state)
+        synthetic_real_provider_execution = _synthetic_real_provider_execution_allowed(
+            self._settings,
+            merchant_id,
+        )
+        if synthetic_run_tag and synthetic_real_provider_execution:
+            logger.warning(
+                "Synthetic run tag %s will execute real provider tools for merchant %s.",
+                synthetic_run_tag,
+                merchant_id,
+            )
+        elif synthetic_run_tag and self._settings.synthetic_execution_mode == "real_provider":
+            logger.warning(
+                "Synthetic real-provider execution was requested but not allowed for merchant %s.",
+                merchant_id,
+            )
+        if synthetic_run_tag and not synthetic_real_provider_execution:
+            result_payloads = _synthetic_tool_result_payloads(
+                tool_calls=sync_result.tool_calls_to_run,
+                synthetic_run_tag=synthetic_run_tag,
+            )
+            async with sessionmaker() as session:
+                async with session.begin():
+                    await _set_merchant_scope(session, merchant_id)
+                    resolution_patch = {
+                        "execution": {
+                            "run_id": run_id,
+                            "thread_id": thread_id,
+                            "status": "synthetic_skipped",
+                            "synthetic_run_tag": synthetic_run_tag,
+                            "synthetic_execution_mode": self._settings.synthetic_execution_mode,
+                            "tool_calls": sync_result.tool_calls_to_run,
+                            "tool_results": result_payloads,
+                        }
+                    }
+                    await _merge_case_state(
+                        session,
+                        merchant_id=merchant_id,
+                        case_id=case_id,
+                        status=CaseStatus.RESOLVED.value,
+                        resolution_patch=resolution_patch,
+                    )
+                    await _record_case_event(
+                        session,
+                        merchant_id=merchant_id,
+                        case_id=case_id,
+                        kind="agent.execution_synthetic_skipped",
+                        payload={
+                            "run_id": run_id,
+                            "thread_id": thread_id,
+                            "synthetic_run_tag": synthetic_run_tag,
+                            "synthetic_execution_mode": self._settings.synthetic_execution_mode,
+                            "tool_calls": sync_result.tool_calls_to_run,
+                            "tool_results": result_payloads,
+                        },
+                        langsmith_run_id=run_id,
+                    )
+                    await _update_agent_run_execution(
+                        session,
+                        run_id=run_id,
+                        status=AgentRunExecutionStatus.SUCCEEDED.value,
+                        graph_status=sync_result.graph_status,
+                        graph_state=completed_run.state,
+                        execution_results=result_payloads,
+                        error=None,
+                    )
+            return ProcessRunResult(
+                run_id=run_id,
+                thread_id=thread_id,
+                status="processed",
+                case_id=case_id,
+                case_status=CaseStatus.RESOLVED.value,
+                execution_status="synthetic_skipped",
+            )
+
         async with sessionmaker() as session:
             async with session.begin():
                 await _set_merchant_scope(session, merchant_id)
@@ -222,7 +309,7 @@ class SdkLangGraphRunProcessor:
                 result_payloads = [
                     result.model_dump(mode="json") for result in execution_result.results
                 ]
-                resolution_patch = {
+                execution_resolution_patch: JsonObject = {
                     "execution": {
                         "run_id": run_id,
                         "thread_id": thread_id,
@@ -236,7 +323,7 @@ class SdkLangGraphRunProcessor:
                     merchant_id=merchant_id,
                     case_id=case_id,
                     status=execution_result.case_status,
-                    resolution_patch=resolution_patch,
+                    resolution_patch=execution_resolution_patch,
                 )
                 await _record_case_event(
                     session,
@@ -393,22 +480,29 @@ async def _execute_tool_plan(
                 case_id=case_id,
             )
         except Exception as exc:  # noqa: BLE001 - keep batch orchestration from leaving cases stuck.
+            partial = len(results) > 0
             return ExecutionBatchResult(
-                status="failed",
-                case_status=CaseStatus.FAILED.value,
+                status="partially_executed" if partial else "failed",
+                case_status=(
+                    CaseStatus.NEEDS_HUMAN_RECOVERY.value if partial else CaseStatus.FAILED.value
+                ),
                 results=results,
                 error={
                     "kind": IntegrationErrorKind.FATAL.value,
                     "message": str(exc) or "Tool invocation failed unexpectedly.",
                     "tool": _value(call, "tool"),
+                    "recovery_required": partial,
                     "details": {},
                 },
             )
         results.append(result)
         if result.status == ToolResultStatus.FAILED:
+            partial = len(results) > 1
             return ExecutionBatchResult(
-                status="failed",
-                case_status=CaseStatus.FAILED.value,
+                status="partially_executed" if partial else "failed",
+                case_status=(
+                    CaseStatus.NEEDS_HUMAN_RECOVERY.value if partial else CaseStatus.FAILED.value
+                ),
                 results=results,
                 error={
                     "kind": (
@@ -419,6 +513,7 @@ async def _execute_tool_plan(
                     "message": result.error.message if result.error else "Tool execution failed.",
                     "tool": result.tool,
                     "provider": result.provider.value,
+                    "recovery_required": partial,
                     "details": result.error.details if result.error else {},
                 },
             )
@@ -638,3 +733,65 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def _synthetic_run_tag_from_state(state: JsonObject) -> str | None:
+    values = _object_dict(state.get("values")) or _object_dict(state)
+    context = _object_dict(values.get("context"))
+    webhook = _object_dict(context.get("webhook"))
+    payload = _object_dict(webhook.get("payload"))
+    synthetic = _object_dict(payload.get("synthetic"))
+    tag = synthetic.get("run_tag")
+    return tag if isinstance(tag, str) and tag else None
+
+
+def _synthetic_real_provider_execution_allowed(settings: Settings, merchant_id: UUID) -> bool:
+    if settings.synthetic_execution_mode != "real_provider":
+        return False
+    if not settings.enable_production_provider_writes:
+        return False
+    if settings.production_provider_write_ack != PRODUCTION_PROVIDER_WRITE_ACK:
+        return False
+    return _production_write_allowlist_contains(
+        settings.production_provider_write_allowlist,
+        merchant_id,
+    )
+
+
+def _production_write_allowlist_contains(allowlist: str, merchant_id: UUID) -> bool:
+    tokens = {
+        token.strip()
+        for token in allowlist.replace("\n", ",").replace(" ", ",").split(",")
+        if token.strip()
+    }
+    return "*" in tokens or str(merchant_id) in tokens
+
+
+def _synthetic_tool_result_payloads(
+    *,
+    tool_calls: list[JsonObject],
+    synthetic_run_tag: str,
+) -> list[JsonObject]:
+    return [
+        {
+            "provider": _provider_for_tool_name(_value(call, "tool")),
+            "tool": _value(call, "tool") or "unknown",
+            "idempotency_key": _value(call, "idempotency_key") or "",
+            "status": ToolResultStatus.SKIPPED.value,
+            "data": {
+                "reason": "synthetic_run",
+                "synthetic_run_tag": synthetic_run_tag,
+                "input": _object_dict(call.get("input")),
+            },
+            "error": None,
+        }
+        for call in tool_calls
+    ]
+
+
+def _provider_for_tool_name(tool_name: str | None) -> str:
+    if isinstance(tool_name, str):
+        prefix = tool_name.split("_", 1)[0]
+        if prefix in {"shopify", "gorgias", "shipbob", "shipstation", "stripe"}:
+            return prefix
+    return "shopify"

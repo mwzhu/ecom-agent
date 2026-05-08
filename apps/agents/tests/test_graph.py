@@ -150,7 +150,11 @@ def test_inventory_conflict_proposes_partial_shipment() -> None:
             "merchant_id": "demo-merchant",
             "case_id": "case_demo_inventory",
             "exception_type": "inventory_conflict",
-            "order": {"id": "gid://shopify/Order/4", "email": "buyer@example.com"},
+            "order": {
+                "id": "gid://shopify/Order/4",
+                "email": "buyer@example.com",
+                "fulfillment_orders": [{"id": "gid://shopify/FulfillmentOrder/40"}],
+            },
             "context": {
                 "inventory": {
                     "has_out_of_stock_line": True,
@@ -193,7 +197,11 @@ def test_address_change_request_updates_shipping_address_before_shipment() -> No
             "merchant_id": "demo-merchant",
             "case_id": "case_demo_address_change",
             "exception_type": "address_change_request",
-            "order": {"id": "gid://shopify/Order/12", "name": "#1012"},
+            "order": {
+                "id": "gid://shopify/Order/12",
+                "name": "#1012",
+                "fulfillment_orders": [{"id": "gid://shopify/FulfillmentOrder/120"}],
+            },
             "context": {
                 "customer_request": {
                     "type": "address_change_request",
@@ -217,6 +225,41 @@ def test_address_change_request_updates_shipping_address_before_shipment() -> No
         "shopify_update_shipping_address",
         "shopify_update_order_note",
     ]
+
+
+def test_item_change_does_not_plan_hold_with_placeholder_fulfillment_order() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_item_change_missing_context",
+            "exception_type": "item_change_request",
+            "order": {"id": "gid://shopify/Order/130", "name": "#1130"},
+            "context": {
+                "customer_request": {"type": "item_change_request"},
+                "ticket": {"id": 130},
+            },
+        }
+    )
+
+    assert "shopify_hold_fulfillment_order" not in [
+        call["tool"] for call in result["proposed_action"]["tool_calls"]
+    ]
+
+
+def test_wismo_without_ticket_or_shipment_context_requires_human() -> None:
+    result = graph.invoke(
+        {
+            "merchant_id": "demo-merchant",
+            "case_id": "case_demo_wismo_no_context",
+            "exception_type": "wismo",
+            "order": {"id": "gid://shopify/Order/131", "name": "#1131"},
+            "context": {"customer_request": {"type": "wismo"}},
+        }
+    )
+
+    assert "__interrupt__" in result
+    assert result["proposed_action"]["requires_human"] is True
+    assert result["proposed_action"]["tool_calls"] == []
 
 
 def test_item_change_request_uses_shopify_order_edit_for_zero_delta_swap() -> None:

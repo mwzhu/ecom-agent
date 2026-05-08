@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 from api.config import Settings, get_settings
-from api.db.models import ActorType, ToolCallStatus
+from api.db.models import ActorType, NormalizedEventSourceType, ToolCallStatus
 from api.integrations import IntegrationProvider
 from api.integrations.base import JsonObject, ProviderCredential, ToolCallSnapshot
 from api.integrations.dependencies import get_integration_repository
@@ -26,6 +26,8 @@ class InMemoryWebhookRepository:
     webhook_sources: dict[tuple[IntegrationProvider, str], UUID] = field(default_factory=dict)
     scopes: list[UUID] = field(default_factory=list)
     processed: list[tuple[IntegrationProvider, str]] = field(default_factory=list)
+    normalized: list[dict[str, object]] = field(default_factory=list)
+    normalized_processed: list[tuple[str, UUID]] = field(default_factory=list)
     cases: list[dict[str, object]] = field(default_factory=list)
     events: list[dict[str, object]] = field(default_factory=list)
 
@@ -127,6 +129,25 @@ class InMemoryWebhookRepository:
         )
         return case_id
 
+    async def find_case_for_provider_order(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        order_id: str,
+    ) -> UUID | None:
+        for case in self.cases:
+            subject_ref = case.get("subject_ref")
+            if (
+                case.get("merchant_id") == merchant_id
+                and isinstance(subject_ref, dict)
+                and subject_ref.get("provider") == provider.value
+                and str(subject_ref.get("order_id")) == str(order_id)
+            ):
+                case_id = case.get("id")
+                return case_id if isinstance(case_id, UUID) else None
+        return None
+
     async def record_webhook_event(
         self,
         *,
@@ -140,6 +161,39 @@ class InMemoryWebhookRepository:
             return False
         self.seen.add(key)
         return True
+
+    async def record_normalized_event(
+        self,
+        *,
+        merchant_id: UUID,
+        source_type: NormalizedEventSourceType,
+        provider: IntegrationProvider | None,
+        source_event_id: str,
+        event_type: str,
+        payload: JsonObject,
+        dedupe_key: str,
+    ) -> bool:
+        self.normalized.append(
+            {
+                "merchant_id": merchant_id,
+                "source_type": source_type.value,
+                "provider": provider.value if provider else None,
+                "source_event_id": source_event_id,
+                "event_type": event_type,
+                "payload": payload,
+                "dedupe_key": dedupe_key,
+            }
+        )
+        return True
+
+    async def mark_normalized_event_processed(
+        self,
+        *,
+        merchant_id: UUID,
+        dedupe_key: str,
+        case_id: UUID,
+    ) -> None:
+        self.normalized_processed.append((dedupe_key, case_id))
 
     async def mark_webhook_processed(
         self,
@@ -207,13 +261,110 @@ def test_shopify_webhook_verifies_hmac_dedupes_and_dispatches() -> None:
     assert repository.processed == [(IntegrationProvider.SHOPIFY, "evt_shopify_1")]
     assert repository.cases[0]["type"] == "fraud_triage"
     assert repository.cases[0]["langgraph_thread_id"] == "thread_webhook_1"
+    assert repository.normalized[0]["source_type"] == "webhook"
+    assert repository.normalized[0]["event_type"] == "orders/updated"
+    assert repository.normalized_processed == [
+        ("webhook:shopify:evt_shopify_1", repository.cases[0]["id"])
+    ]
     assert [event["kind"] for event in repository.events] == [
         "webhook.received",
         "agent.run_started",
     ]
     assert len(dispatcher.runs) == 1
     assert dispatcher.runs[0].case_id == repository.cases[0]["id"]
-    assert dispatcher.runs[0].exception_type == "fraud_triage"
+
+
+def test_shopify_demo_order_update_webhook_is_ignored() -> None:
+    secret = "shopify-webhook-secret"
+    merchant_id = uuid4()
+    repository = InMemoryWebhookRepository(
+        webhook_sources={(IntegrationProvider.SHOPIFY, "demo.myshopify.com"): merchant_id}
+    )
+    dispatcher = InMemoryDispatcher()
+    client = _client(repository, dispatcher, Settings(shopify_webhook_secret=secret))
+    body = json.dumps(
+        {
+            "id": "gid://shopify/Order/1",
+            "name": "#1001",
+            "tags": "flowlabs-demo, address-change-request, real-demo-001",
+            "note": "Real demo: customer requested an address change before fulfillment.",
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    headers = {
+        "content-type": "application/json",
+        "x-shopify-shop-domain": "demo.myshopify.com",
+        "x-shopify-topic": "orders/updated",
+        "x-shopify-webhook-id": "evt_shopify_demo_update",
+        "x-shopify-hmac-sha256": _shopify_signature(secret, body),
+    }
+    try:
+        response = client.post("/v1/webhooks/shopify", content=body, headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ignored"
+    assert repository.cases == []
+    assert dispatcher.runs == []
+
+
+def test_shopify_followup_webhook_updates_existing_case_without_new_run() -> None:
+    secret = "shopify-webhook-secret"
+    merchant_id = uuid4()
+    existing_case_id = uuid4()
+    repository = InMemoryWebhookRepository(
+        webhook_sources={(IntegrationProvider.SHOPIFY, "demo.myshopify.com"): merchant_id},
+        cases=[
+            {
+                "id": existing_case_id,
+                "merchant_id": merchant_id,
+                "type": "order_cancellation_request",
+                "subject_ref": {
+                    "provider": "shopify",
+                    "order_id": 12345,
+                    "order_name": "#1001",
+                },
+                "langgraph_thread_id": "thread_existing",
+            }
+        ],
+    )
+    dispatcher = InMemoryDispatcher()
+    client = _client(repository, dispatcher, Settings(shopify_webhook_secret=secret))
+    body = json.dumps(
+        {
+            "id": 987,
+            "order_id": 12345,
+            "note": "Order canceled",
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    headers = {
+        "content-type": "application/json",
+        "x-shopify-shop-domain": "demo.myshopify.com",
+        "x-shopify-topic": "refunds/create",
+        "x-shopify-webhook-id": "evt_shopify_refund_followup",
+        "x-shopify-hmac-sha256": _shopify_signature(secret, body),
+    }
+    try:
+        response = client.post("/v1/webhooks/shopify", content=body, headers=headers)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "shopify",
+        "event_id": "evt_shopify_refund_followup",
+        "status": "updated_existing_case",
+        "case_id": str(existing_case_id),
+        "run_id": None,
+    }
+    assert len(repository.cases) == 1
+    assert dispatcher.runs == []
+    assert repository.events[0]["kind"] == "webhook.followup_received"
+    assert repository.normalized_processed == [
+        ("webhook:shopify:evt_shopify_refund_followup", existing_case_id)
+    ]
 
 
 def test_shopify_webhook_rejects_bad_signature() -> None:
@@ -237,6 +388,42 @@ def test_shopify_webhook_rejects_bad_signature() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 401
+
+
+def test_shopify_webhook_accepts_previous_secret_during_rotation() -> None:
+    current_secret = "shopify-current-secret"
+    previous_secret = "shopify-previous-secret"
+    merchant_id = uuid4()
+    repository = InMemoryWebhookRepository(
+        webhook_sources={(IntegrationProvider.SHOPIFY, "demo.myshopify.com"): merchant_id}
+    )
+    dispatcher = InMemoryDispatcher()
+    client = _client(
+        repository,
+        dispatcher,
+        Settings(
+            shopify_webhook_secret=current_secret,
+            shopify_previous_webhook_secret=previous_secret,
+        ),
+    )
+    body = json.dumps({"id": "gid://shopify/Order/2"}, separators=(",", ":")).encode("utf-8")
+
+    try:
+        response = client.post(
+            "/v1/webhooks/shopify",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "x-shopify-shop-domain": "demo.myshopify.com",
+                "x-shopify-webhook-id": "evt_shopify_rotating",
+                "x-shopify-hmac-sha256": _shopify_signature(previous_secret, body),
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "accepted"
 
 
 def test_shopify_webhook_rejects_unmapped_source_even_with_merchant_header() -> None:
@@ -284,7 +471,7 @@ def test_stripe_webhook_uses_configured_account_id_when_event_has_no_account() -
     client = _client(
         repository,
         dispatcher,
-        Settings(stripe_webhook_secret=secret, stripe_account_id="acct_123"),
+        Settings(stripe_webhook_secret=secret, stripe_account_id="ACCT_123"),
     )
     body = json.dumps(
         {
@@ -318,6 +505,86 @@ def test_stripe_webhook_uses_configured_account_id_when_event_has_no_account() -
     assert repository.scopes == [merchant_id]
     assert repository.cases[0]["merchant_id"] == merchant_id
     assert len(dispatcher.runs) == 1
+
+
+def test_gorgias_webhook_accepts_static_shared_secret_for_http_integration() -> None:
+    secret = "gorgias-static-secret"
+    merchant_id = uuid4()
+    repository = InMemoryWebhookRepository(
+        webhook_sources={(IntegrationProvider.GORGIAS, "flow-labs-2.gorgias.com"): merchant_id}
+    )
+    dispatcher = InMemoryDispatcher()
+    client = _client(repository, dispatcher, Settings(gorgias_webhook_secret=secret))
+    body = json.dumps(
+        {
+            "id": 123,
+            "ticket": {
+                "id": 123,
+                "subject": "Need to change my address",
+                "customer": {"email": "buyer@example.com"},
+            },
+            "customer_request": {"type": "change_address"},
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    try:
+        response = client.post(
+            "/v1/webhooks/gorgias",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "x-gorgias-domain": "flow-labs-2.gorgias.com",
+                "x-ecom-webhook-secret": secret,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "accepted"
+    assert repository.scopes == [merchant_id]
+    assert repository.cases[0]["type"] == "address_change_request"
+    assert len(dispatcher.runs) == 1
+
+
+def test_gorgias_webhook_accepts_body_shared_secret_for_http_integration() -> None:
+    secret = "gorgias-static-secret"
+    merchant_id = uuid4()
+    repository = InMemoryWebhookRepository(
+        webhook_sources={(IntegrationProvider.GORGIAS, "flow-labs-2.gorgias.com"): merchant_id}
+    )
+    dispatcher = InMemoryDispatcher()
+    client = _client(repository, dispatcher, Settings(gorgias_webhook_secret=secret))
+    body = json.dumps(
+        {
+            "id": 123,
+            "webhook_secret": secret,
+            "gorgias_domain": "flow-labs-2.gorgias.com",
+            "ticket": {
+                "id": 123,
+                "subject": "Need to change my address",
+                "customer": {"email": "buyer@example.com"},
+            },
+            "customer_request": {"type": "change_address"},
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    try:
+        response = client.post(
+            "/v1/webhooks/gorgias",
+            content=body,
+            headers={
+                "content-type": "application/json",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "accepted"
+    assert repository.cases[0]["type"] == "address_change_request"
 
 
 def _client(

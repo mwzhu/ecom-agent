@@ -37,6 +37,15 @@ def test_classifies_customer_address_change_request_before_other_context() -> No
     assert result.confidence == 0.91
 
 
+def test_normalizes_hyphenated_customer_request_type() -> None:
+    result = classify_order_exception(
+        {"id": "gid://shopify/Order/2"},
+        {"customer_request": {"type": "item-change-request"}},
+    )
+
+    assert result.exception_type == "item_change_request"
+
+
 def test_classifies_stuck_in_transit_from_stale_carrier_scan() -> None:
     result = classify_order_exception(
         {"id": "gid://shopify/Order/3"},

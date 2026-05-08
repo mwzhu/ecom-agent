@@ -6,30 +6,40 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 import httpx
 from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, text, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.config import Settings, get_settings
 from api.db.models import (
     ActorType,
+    AuditEvent,
     Case,
     CaseEvent,
     CaseStatus,
     IntegrationCredential,
+    IntegrationCredentialStatus,
+    IntegrationHealthStatus,
+    NormalizedEvent,
+    NormalizedEventSourceType,
     ToolCall,
     ToolCallStatus,
     WebhookEvent,
+    WebhookRegistrationStatus,
+    WebhookRegistry,
     WebhookSource,
 )
 from api.db.session import get_sessionmaker
-from api.security import CredentialCipher
+from api.security import CredentialCipher, EncryptedCredential, ManagedKmsCredentialCipher
+
+if TYPE_CHECKING:
+    from api.integrations.scopes import ToolAvailability
 
 JsonObject = dict[str, Any]
 JsonValue = JsonObject | list[Any] | str | int | float | bool | None
@@ -108,6 +118,17 @@ class ProviderCredential:
 
 
 @dataclass(frozen=True)
+class CredentialHealthSnapshot:
+    provider: IntegrationProvider
+    status: str
+    provider_account_id: str | None
+    granted_scopes: list[str]
+    missing_scopes: list[str]
+    checked_at: datetime | None
+    error: JsonObject | None
+
+
+@dataclass(frozen=True)
 class ToolCallSnapshot:
     id: UUID
     status: str
@@ -140,6 +161,7 @@ class IntegrationRepository(Protocol):
     async def set_merchant_scope(self, merchant_id: UUID) -> None:
         ...
 
+
     async def get_credential(
         self,
         merchant_id: UUID,
@@ -156,6 +178,31 @@ class IntegrationRepository(Protocol):
         refresh_token: str | None = None,
         expires_at: datetime | None = None,
         metadata: Mapping[str, JsonValue] | None = None,
+    ) -> None:
+        ...
+
+    async def list_credential_health(self, merchant_id: UUID) -> list[CredentialHealthSnapshot]:
+        ...
+
+    async def update_credential_health(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        status: IntegrationHealthStatus,
+        provider_account_id: str | None,
+        granted_scopes: list[str],
+        error: JsonObject | None = None,
+    ) -> None:
+        ...
+
+    async def disconnect_provider(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        actor_id: str | None,
+        retention_mark_cached_data: bool = True,
     ) -> None:
         ...
 
@@ -216,6 +263,15 @@ class IntegrationRepository(Protocol):
     ) -> UUID:
         ...
 
+    async def find_case_for_provider_order(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        order_id: str,
+    ) -> UUID | None:
+        ...
+
     async def record_webhook_event(
         self,
         *,
@@ -226,12 +282,69 @@ class IntegrationRepository(Protocol):
     ) -> bool:
         ...
 
+    async def record_normalized_event(
+        self,
+        *,
+        merchant_id: UUID,
+        source_type: NormalizedEventSourceType,
+        provider: IntegrationProvider | None,
+        source_event_id: str,
+        event_type: str,
+        payload: JsonObject,
+        dedupe_key: str,
+    ) -> bool:
+        ...
+
+    async def mark_normalized_event_processed(
+        self,
+        *,
+        merchant_id: UUID,
+        dedupe_key: str,
+        case_id: UUID,
+    ) -> None:
+        ...
+
+    async def upsert_webhook_registration(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        topic: str,
+        callback_url: str,
+        external_webhook_id: str | None,
+        signing_secret_ref: str | None,
+        status: WebhookRegistrationStatus,
+        verified: bool,
+    ) -> None:
+        ...
+
+    async def record_audit_event(
+        self,
+        *,
+        merchant_id: UUID,
+        actor: ActorType,
+        action: str,
+        payload: JsonObject,
+        actor_id: str | None = None,
+        provider: IntegrationProvider | None = None,
+        case_id: UUID | None = None,
+    ) -> None:
+        ...
+
     async def mark_webhook_processed(
         self,
         *,
         provider: IntegrationProvider,
         event_id: str,
     ) -> None:
+        ...
+
+
+class CredentialEnvelopeCipher(Protocol):
+    def encrypt(self, merchant_id: UUID, plaintext: str) -> EncryptedCredential:
+        ...
+
+    def decrypt(self, merchant_id: UUID, encrypted_value: str) -> str:
         ...
 
 
@@ -255,6 +368,7 @@ class SqlAlchemyIntegrationRepository:
             select(IntegrationCredential).where(
                 IntegrationCredential.merchant_id == merchant_id,
                 IntegrationCredential.provider == provider.value,
+                IntegrationCredential.status == IntegrationCredentialStatus.ACTIVE.value,
             )
         )
         credential = result.scalar_one_or_none()
@@ -279,6 +393,101 @@ class SqlAlchemyIntegrationRepository:
             refresh_token=refresh_token,
             expires_at=credential.expires_at,
             metadata=metadata,
+        )
+
+    async def list_credential_health(self, merchant_id: UUID) -> list[CredentialHealthSnapshot]:
+        result = await self._session.execute(
+            select(IntegrationCredential)
+            .where(IntegrationCredential.merchant_id == merchant_id)
+            .order_by(IntegrationCredential.provider.asc())
+        )
+        return [
+            CredentialHealthSnapshot(
+                provider=IntegrationProvider(credential.provider),
+                status=credential.last_health_status,
+                provider_account_id=credential.provider_account_id,
+                granted_scopes=_string_list(credential.granted_scopes),
+                missing_scopes=_string_list(
+                    (credential.last_health_error or {}).get("missing_scopes")
+                    if isinstance(credential.last_health_error, dict)
+                    else []
+                ),
+                checked_at=credential.last_health_checked_at,
+                error=credential.last_health_error,
+            )
+            for credential in result.scalars()
+        ]
+
+    async def update_credential_health(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        status: IntegrationHealthStatus,
+        provider_account_id: str | None,
+        granted_scopes: list[str],
+        error: JsonObject | None = None,
+    ) -> None:
+        await self._session.execute(
+            update(IntegrationCredential)
+            .where(
+                IntegrationCredential.merchant_id == merchant_id,
+                IntegrationCredential.provider == provider.value,
+            )
+            .values(
+                provider_account_id=provider_account_id,
+                granted_scopes=granted_scopes,
+                last_health_status=status.value,
+                last_health_error=error,
+                last_health_checked_at=datetime.now(UTC),
+            )
+        )
+
+    async def disconnect_provider(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        actor_id: str | None,
+        retention_mark_cached_data: bool = True,
+    ) -> None:
+        now = datetime.now(UTC)
+        await self._session.execute(
+            update(IntegrationCredential)
+            .where(
+                IntegrationCredential.merchant_id == merchant_id,
+                IntegrationCredential.provider == provider.value,
+            )
+            .values(
+                status=IntegrationCredentialStatus.DISCONNECTED.value,
+                encrypted_token="",
+                encrypted_refresh=None,
+                last_health_status=IntegrationHealthStatus.AUTH_FAILED.value,
+                last_health_error={"reason": "provider_disconnected"},
+                disconnected_at=now,
+            )
+        )
+        await self._session.execute(
+            update(WebhookRegistry)
+            .where(
+                WebhookRegistry.merchant_id == merchant_id,
+                WebhookRegistry.provider == provider.value,
+            )
+            .values(status=WebhookRegistrationStatus.DISABLED.value, last_verified_at=now)
+        )
+        await self._session.execute(
+            delete(WebhookSource).where(
+                WebhookSource.merchant_id == merchant_id,
+                WebhookSource.provider == provider.value,
+            )
+        )
+        await self.record_audit_event(
+            merchant_id=merchant_id,
+            actor=ActorType.HUMAN if actor_id else ActorType.SYSTEM,
+            actor_id=actor_id,
+            provider=provider,
+            action="integration.disconnected",
+            payload={"retention_mark_cached_data": retention_mark_cached_data},
         )
 
     async def upsert_credential(
@@ -308,6 +517,13 @@ class SqlAlchemyIntegrationRepository:
             "encrypted_refresh": encrypted_refresh,
             "expires_at": expires_at,
             "kms_key_id": encrypted_token.kms_key_id,
+            "status": IntegrationCredentialStatus.ACTIVE.value,
+            "provider_account_id": webhook_external_account_id(provider, metadata or {}),
+            "granted_scopes": scopes_from_metadata(metadata or {}),
+            "last_health_status": IntegrationHealthStatus.UNKNOWN.value,
+            "last_health_error": None,
+            "last_health_checked_at": None,
+            "disconnected_at": None,
         }
         statement = postgres_insert(IntegrationCredential).values(**values)
         statement = statement.on_conflict_do_update(
@@ -317,6 +533,13 @@ class SqlAlchemyIntegrationRepository:
                 "encrypted_refresh": statement.excluded.encrypted_refresh,
                 "expires_at": statement.excluded.expires_at,
                 "kms_key_id": statement.excluded.kms_key_id,
+                "status": statement.excluded.status,
+                "provider_account_id": statement.excluded.provider_account_id,
+                "granted_scopes": statement.excluded.granted_scopes,
+                "last_health_status": statement.excluded.last_health_status,
+                "last_health_error": statement.excluded.last_health_error,
+                "last_health_checked_at": statement.excluded.last_health_checked_at,
+                "disconnected_at": statement.excluded.disconnected_at,
             },
         )
         await self._session.execute(statement)
@@ -332,6 +555,17 @@ class SqlAlchemyIntegrationRepository:
                 set_={"merchant_id": source_statement.excluded.merchant_id},
             )
             await self._session.execute(source_statement)
+        await self.record_audit_event(
+            merchant_id=merchant_id,
+            actor=ActorType.SYSTEM,
+            action="integration.credential_upserted",
+            provider=provider,
+            payload={
+                "provider_account_id": values["provider_account_id"],
+                "granted_scopes": values["granted_scopes"],
+                "expires_at": expires_at.isoformat() if expires_at else None,
+            },
+        )
 
     async def get_tool_call(
         self,
@@ -443,6 +677,25 @@ class SqlAlchemyIntegrationRepository:
         await self._session.flush()
         return case.id
 
+    async def find_case_for_provider_order(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        order_id: str,
+    ) -> UUID | None:
+        result = await self._session.execute(
+            select(Case.id)
+            .where(
+                Case.merchant_id == merchant_id,
+                Case.subject_ref["provider"].as_string() == provider.value,
+                Case.subject_ref["order_id"].as_string() == str(order_id),
+            )
+            .order_by(Case.created_at.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def record_webhook_event(
         self,
         *,
@@ -464,6 +717,110 @@ class SqlAlchemyIntegrationRepository:
         )
         result = await self._session.execute(statement)
         return result.scalar_one_or_none() is not None
+
+    async def record_normalized_event(
+        self,
+        *,
+        merchant_id: UUID,
+        source_type: NormalizedEventSourceType,
+        provider: IntegrationProvider | None,
+        source_event_id: str,
+        event_type: str,
+        payload: JsonObject,
+        dedupe_key: str,
+    ) -> bool:
+        statement = (
+            postgres_insert(NormalizedEvent)
+            .values(
+                merchant_id=merchant_id,
+                source_type=source_type.value,
+                provider=provider.value if provider else None,
+                source_event_id=source_event_id,
+                event_type=event_type,
+                payload=payload,
+                dedupe_key=dedupe_key,
+                observed_at=datetime.now(UTC),
+            )
+            .on_conflict_do_nothing(constraint="uq_normalized_events_dedupe")
+            .returning(NormalizedEvent.id)
+        )
+        result = await self._session.execute(statement)
+        return result.scalar_one_or_none() is not None
+
+    async def mark_normalized_event_processed(
+        self,
+        *,
+        merchant_id: UUID,
+        dedupe_key: str,
+        case_id: UUID,
+    ) -> None:
+        await self._session.execute(
+            update(NormalizedEvent)
+            .where(
+                NormalizedEvent.merchant_id == merchant_id,
+                NormalizedEvent.dedupe_key == dedupe_key,
+            )
+            .values(processed_at=datetime.now(UTC), case_id=case_id)
+        )
+
+    async def upsert_webhook_registration(
+        self,
+        *,
+        merchant_id: UUID,
+        provider: IntegrationProvider,
+        topic: str,
+        callback_url: str,
+        external_webhook_id: str | None,
+        signing_secret_ref: str | None,
+        status: WebhookRegistrationStatus,
+        verified: bool,
+    ) -> None:
+        now = datetime.now(UTC)
+        statement = postgres_insert(WebhookRegistry).values(
+            merchant_id=merchant_id,
+            provider=provider.value,
+            topic=topic,
+            external_webhook_id=external_webhook_id,
+            signing_secret_ref=signing_secret_ref,
+            status=status.value,
+            callback_url=callback_url,
+            last_verified_at=now if verified else None,
+        )
+        statement = statement.on_conflict_do_update(
+            constraint="uq_webhook_registry_merchant_provider_topic",
+            set_={
+                "external_webhook_id": statement.excluded.external_webhook_id,
+                "signing_secret_ref": statement.excluded.signing_secret_ref,
+                "status": statement.excluded.status,
+                "callback_url": statement.excluded.callback_url,
+                "last_verified_at": statement.excluded.last_verified_at,
+            },
+        )
+        await self._session.execute(statement)
+
+    async def record_audit_event(
+        self,
+        *,
+        merchant_id: UUID,
+        actor: ActorType,
+        action: str,
+        payload: JsonObject,
+        actor_id: str | None = None,
+        provider: IntegrationProvider | None = None,
+        case_id: UUID | None = None,
+    ) -> None:
+        self._session.add(
+            AuditEvent(
+                merchant_id=merchant_id,
+                actor_type=actor.value,
+                actor_id=actor_id,
+                action=action,
+                provider=provider.value if provider else None,
+                case_id=case_id,
+                payload=payload,
+            )
+        )
+        await self._session.flush()
 
     async def mark_webhook_processed(
         self,
@@ -511,6 +868,7 @@ async def execute_integration_tool(
     operation: Operation,
     write: bool = False,
 ) -> ToolExecutionResult:
+    settings = get_settings()
     await repository.set_merchant_scope(request.merchant_id)
     idempotency_key = request.idempotency_key or build_idempotency_key(tool_name, request)
     if write and request.idempotency_key is None:
@@ -541,6 +899,17 @@ async def execute_integration_tool(
     )
     try:
         credential = await repository.get_credential(request.merchant_id, provider)
+        availability = _tool_availability(tool_name, credential, settings)
+        if availability is not None and not availability.enabled:
+            raise IntegrationError(
+                IntegrationErrorKind.FATAL,
+                provider,
+                f"Tool {tool_name} is disabled for this credential.",
+                details={
+                    "block_reasons": availability.block_reasons,
+                    "missing_scopes": availability.missing_scopes,
+                },
+            )
         data = jsonable_encoder(await operation(credential))
     except Exception as exc:  # noqa: BLE001 - every tool error must be normalized for agents.
         error = normalize_exception(provider, exc)
@@ -695,7 +1064,11 @@ def _request_payload(request: ToolRequest) -> JsonObject:
     return payload
 
 
-def _credential_cipher(settings: Settings) -> CredentialCipher:
+def _credential_cipher(settings: Settings) -> CredentialEnvelopeCipher:
+    if settings.app_kms_provider == "managed":
+        if settings.managed_kms_key_id is None:
+            raise RuntimeError("MANAGED_KMS_KEY_ID is required for managed credential KMS.")
+        return ManagedKmsCredentialCipher(settings.managed_kms_key_id)
     if settings.local_kms_master_key is None:
         raise RuntimeError("LOCAL_KMS_MASTER_KEY is required to decrypt integration credentials.")
     return CredentialCipher(
@@ -760,3 +1133,34 @@ def require_metadata_string(
         credential.provider,
         f"Credential metadata is missing required field {key!r}.",
     )
+
+
+def _tool_availability(
+    tool_name: str,
+    credential: ProviderCredential,
+    settings: Settings,
+) -> ToolAvailability | None:
+    from api.integrations.scopes import tool_availability
+
+    if not any(key in credential.metadata for key in ("scope", "scopes", "granted_scopes")):
+        return None
+    return tool_availability(
+        tool_name,
+        granted_scopes=scopes_from_metadata(credential.metadata),
+        settings=settings,
+    )
+
+
+def scopes_from_metadata(metadata: Mapping[str, JsonValue]) -> list[str]:
+    scope_value = metadata.get("scope") or metadata.get("scopes") or metadata.get("granted_scopes")
+    if isinstance(scope_value, str):
+        return sorted({scope.strip() for scope in scope_value.replace(" ", ",").split(",") if scope.strip()})
+    if isinstance(scope_value, list):
+        return sorted({scope for scope in scope_value if isinstance(scope, str) and scope})
+    return []
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]

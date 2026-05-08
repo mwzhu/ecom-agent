@@ -1,4 +1,3 @@
-from api.security.kms import CredentialCipher, EncryptedCredential
+from api.security.kms import CredentialCipher, EncryptedCredential, ManagedKmsCredentialCipher
 
-__all__ = ["CredentialCipher", "EncryptedCredential"]
-
+__all__ = ["CredentialCipher", "EncryptedCredential", "ManagedKmsCredentialCipher"]

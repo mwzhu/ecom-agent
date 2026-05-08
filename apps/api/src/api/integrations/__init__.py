@@ -1,5 +1,6 @@
 """Provider integration clients and LangGraph tool wrappers."""
 from api.integrations.base import (
+    CredentialHealthSnapshot,
     IntegrationError,
     IntegrationErrorKind,
     IntegrationProvider,
@@ -24,6 +25,7 @@ __all__ = [
     "IntegrationProvider",
     "IntegrationRepository",
     "ProviderCredential",
+    "CredentialHealthSnapshot",
     "SqlAlchemyIntegrationRepository",
     "ToolExecutionResult",
     "ToolRequest",

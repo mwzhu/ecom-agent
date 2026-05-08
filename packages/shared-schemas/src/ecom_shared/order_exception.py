@@ -209,7 +209,7 @@ def _request_type(context: JsonObject) -> str:
     ):
         value = _nested(context, path)
         if isinstance(value, str) and value:
-            return value.strip().lower()
+            return value.strip().lower().replace("-", "_")
     return ""
 
 

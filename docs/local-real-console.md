@@ -13,6 +13,7 @@ INTERNAL_API_BASE_URL=http://localhost:8000
 
 CLERK_ALLOW_UNVERIFIED_JWT=true
 CLERK_DEV_JWT_SECRET=local-dev-secret-for-hs256-signatures
+CONSOLE_LOCAL_ORG_ID=org_local_demo
 SHOPIFY_WEBHOOK_SECRET=local-dev-shopify-webhook-secret
 
 LANGGRAPH_STUDIO_URL=http://localhost:2024
@@ -20,7 +21,9 @@ LANGGRAPH_ASSISTANT_ID=order-exception
 LANGGRAPH_RUN_WEBHOOK_SECRET=local-dev-langgraph-run-webhook-secret
 ```
 
-Then create the local console bearer token:
+The console can now mint a local dev bearer token automatically from
+`CLERK_DEV_JWT_SECRET` and `CONSOLE_LOCAL_ORG_ID`. If you want to pin a static
+token instead, create one manually:
 
 ```bash
 export INTERNAL_CONSOLE_BEARER_TOKEN="$(
@@ -87,3 +90,25 @@ Next console route -> FastAPI /v1/cases/{case_id}/decision -> LangGraph resume
 The API records `case.decision_submitted` and updates the case. If the approved graph state contains executable tool calls, the API attempts them through the integration layer.
 
 Use fake provider credentials if you only want to test orchestration. Use real staging Shopify/Stripe/Gorgias credentials only when you intentionally want external writes.
+
+## Synthetic cases with real provider execution
+
+Synthetic webhook cases skip provider execution by default, including outside local
+development. To let an approved synthetic case execute real Shopify/Stripe/Gorgias
+tools, all of these settings must be present on the API process:
+
+```bash
+SYNTHETIC_EXECUTION_MODE=real_provider
+ENABLE_PRODUCTION_PROVIDER_WRITES=true
+PRODUCTION_PROVIDER_WRITE_ALLOWLIST=<merchant-uuid-or-*>
+PRODUCTION_PROVIDER_WRITE_ACK=I_UNDERSTAND_THIS_CAN_MUTATE_PRODUCTION_PROVIDERS
+```
+
+Use the merchant UUID printed by `scripts/seed_local_synthetic_sources.py` or the
+real merchant UUID from `merchants.id`. Prefer a single UUID over `*`.
+
+This mode only changes the synthetic short-circuit. It does not create provider
+objects, and the regular Phase 1 `#SIM-...` payloads contain fake order/ticket/payment
+IDs. Use it only with real provider webhooks or a manifest whose payloads reference
+real provider objects; otherwise approvals will call the provider tools and fail on
+missing or invalid provider IDs.

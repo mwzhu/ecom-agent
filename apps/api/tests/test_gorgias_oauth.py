@@ -89,6 +89,28 @@ def test_gorgias_install_redirects_to_account_authorize_url() -> None:
     assert verify_gorgias_state(settings, query["state"][0])["merchant_id"] == str(merchant_id)
 
 
+def test_gorgias_install_rejects_placeholder_oauth_credentials() -> None:
+    merchant_id = uuid4()
+    settings = Settings(
+        api_base_url="https://api.example.com",
+        console_base_url="https://console.example.com",
+        gorgias_client_id="...",
+        gorgias_client_secret="...",
+    )
+    client = _client(settings=settings, merchant_id=merchant_id)
+
+    try:
+        response = client.get(
+            "/v1/integrations/gorgias/install?account=demo",
+            follow_redirects=False,
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Gorgias OAuth is not configured."}
+
+
 def test_gorgias_callback_exchanges_code_and_stores_credential(
     monkeypatch: Any,
 ) -> None:
@@ -125,7 +147,7 @@ def test_gorgias_callback_exchanges_code_and_stores_credential(
         app.dependency_overrides.clear()
 
     assert response.status_code == 303
-    assert response.headers["location"] == "https://api.example.com/v1/me"
+    assert response.headers["location"] == "https://console.example.com/?setup=connected"
     assert repository.scopes == [merchant_id]
     assert repository.upserts == [
         {
@@ -148,6 +170,7 @@ def test_gorgias_callback_exchanges_code_and_stores_credential(
 def _settings() -> Settings:
     return Settings(
         api_base_url="https://api.example.com",
+        console_base_url="https://console.example.com",
         gorgias_client_id="gorgias-client-id",
         gorgias_client_secret="gorgias-client-secret",
     )

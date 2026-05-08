@@ -899,6 +899,11 @@ def _with_proposal(
         if isinstance(fop.get("id"), str)
     ]
     compact_tool_calls = _compact_tool_calls(tool_calls)
+    if exception_type == "wismo" and not compact_tool_calls:
+        required_approvals = [
+            *required_approvals,
+            "No shipment lookup or customer-message draft could be prepared from the available context.",
+        ]
     requires_human = bool(required_approvals) or tool_plan_requires_human(compact_tool_calls)
     proposed_action: JsonObject = {
         "type": exception_type,
@@ -934,13 +939,16 @@ def _hold_fulfillment_call(
     intent: str,
     reason_notes: str,
     reason: str = "OTHER",
-) -> JsonObject:
+) -> JsonObject | None:
+    fulfillment_order_id = _fulfillment_order_id(order, context)
+    if not fulfillment_order_id:
+        return None
     return planned_tool_call(
         case_id=case_id,
         tool="shopify_hold_fulfillment_order",
         intent=intent,
         payload={
-            "fulfillment_order_id": _fulfillment_order_id(order, context),
+            "fulfillment_order_id": fulfillment_order_id,
             "reason": reason,
             "reason_notes": reason_notes,
         },
@@ -1276,12 +1284,18 @@ def _fulfillment_order_id(order: JsonObject, context: JsonObject) -> str:
     fulfillment = context.get("fulfillment", {})
     explicit = _nested(fulfillment, ["fulfillment_order_id"], None)
     if explicit is not None:
-        return _string(explicit)
+        return _valid_shopify_gid(explicit, "FulfillmentOrder")
     fulfillment_orders = order.get("fulfillment_orders") or order.get("fulfillmentOrders")
     if isinstance(fulfillment_orders, list) and fulfillment_orders:
         first = fulfillment_orders[0]
-        return _string(_nested(first, ["id"], "unknown_fulfillment_order"))
-    return "unknown_fulfillment_order"
+        return _valid_shopify_gid(_nested(first, ["id"], None), "FulfillmentOrder")
+    return ""
+
+
+def _valid_shopify_gid(value: object, resource: str) -> str:
+    text = _string(value)
+    prefix = f"gid://shopify/{resource}/"
+    return text if text.startswith(prefix) else ""
 
 
 def _ticket_id(context: JsonObject) -> int:
